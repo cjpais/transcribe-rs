@@ -56,7 +56,7 @@ pub struct TranscriptionResult {
     /// The complete transcribed text from the audio
     pub text: String,
     /// Individual segments with timing information
-    pub segments: Vec<TranscriptionSegment>,
+    pub segments: Option<Vec<TranscriptionSegment>>,
 }
 
 /// A single transcribed segment with timing information.

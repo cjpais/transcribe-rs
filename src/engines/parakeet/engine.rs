@@ -293,7 +293,7 @@ impl TranscriptionEngine for ParakeetEngine {
 
         Ok(TranscriptionResult {
             text: timestamped_result.text,
-            segments,
+            segments: Some(segments),
         })
     }
 }

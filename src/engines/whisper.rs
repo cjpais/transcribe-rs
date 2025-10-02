@@ -261,7 +261,7 @@ impl TranscriptionEngine for WhisperEngine {
 
         Ok(TranscriptionResult {
             text: full_text.trim().to_string(),
-            segments,
+            segments: Some(segments),
         })
     }
 }
