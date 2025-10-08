@@ -45,6 +45,7 @@
 //!
 //! let params = WhisperInferenceParams {
 //!     language: Some("en".to_string()),
+//!     translate: false,  // Set to true to translate to English (requires multilingual model)
 //!     print_timestamps: true,
 //!     suppress_blank: true,
 //!     no_speech_thold: 0.6,
@@ -78,6 +79,10 @@ pub struct WhisperInferenceParams {
     /// If None, Whisper will auto-detect the language.
     pub language: Option<String>,
 
+    /// Whether to translate the transcription to English.
+    /// Only works with multilingual models (not .en models).
+    pub translate: bool,
+
     /// Whether to print special tokens in the output
     pub print_special: bool,
 
@@ -104,6 +109,7 @@ impl Default for WhisperInferenceParams {
     fn default() -> Self {
         Self {
             language: None,
+            translate: false,
             print_special: false,
             print_progress: false,
             print_realtime: false,
@@ -222,6 +228,7 @@ impl TranscriptionEngine for WhisperEngine {
             patience: -1.0,
         });
         full_params.set_language(whisper_params.language.as_deref());
+        full_params.set_translate(whisper_params.translate);
         full_params.set_print_special(whisper_params.print_special);
         full_params.set_print_progress(whisper_params.print_progress);
         full_params.set_print_realtime(whisper_params.print_realtime);
