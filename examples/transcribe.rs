@@ -6,7 +6,7 @@ use transcribe_rs::{
         parakeet::{
             ParakeetEngine, ParakeetInferenceParams, ParakeetModelParams, TimestampGranularity,
         },
-        whisper::WhisperEngine,
+        whisper::{WhisperEngine, WhisperInferenceParams},
     },
     TranscriptionEngine,
 };
@@ -51,7 +51,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             println!("Transcribing file: {:?}", wav_path);
             let transcribe_start = Instant::now();
-            let result = engine.transcribe_file(&wav_path, None)?;
+            
+            // Example of using initial_prompt to provide context
+            let params = WhisperInferenceParams {
+                initial_prompt: Some("This is a conversation about technology and AI.".to_string()),
+                ..Default::default()
+            };
+            
+            let result = engine.transcribe_file(&wav_path, Some(params))?;
             let transcribe_duration = transcribe_start.elapsed();
             println!("Transcription completed in {:.2?}", transcribe_duration);
 
