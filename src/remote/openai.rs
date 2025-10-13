@@ -23,6 +23,10 @@
 //! use transcribe_rs::remote::openai::{self, OpenAIModel, OpenAIRequestParams};
 //! use transcribe_rs::{remote, RemoteTranscriptionEngine};
 //!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! let engine = openai::default_engine();
+//! let wav_path = PathBuf::from("audio.wav");
+//!
 //! let result = engine
 //!     .transcribe_file(
 //!         &wav_path,
@@ -32,6 +36,8 @@
 //!             .build()?,
 //!     )
 //!     .await?;
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! Note that `timestamp_granularity` is only supported on `whisper-1` model.
@@ -85,7 +91,7 @@ pub struct OpenAIRequestParams {
     ///
     /// Example:
     ///
-    /// ```
+    /// ```text
     /// The following conversation is a lecture about the recent developments
     /// around OpenAI, GPT-4.5 and the future of AI.
     /// ```
