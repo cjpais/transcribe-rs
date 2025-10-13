@@ -2129,7 +2129,7 @@ dependencies = [
 
 [[package]]
 name = "transcribe-rs"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "async-openai",
  "async-trait",
