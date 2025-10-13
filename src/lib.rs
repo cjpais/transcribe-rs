@@ -19,8 +19,8 @@
 //! ## Quick Start
 //!
 //! ```rust,no_run
-//! use transcribe_rs::{TranscriptionEngine, engines::whisper::WhisperEngine};
 //! use std::path::PathBuf;
+//! use transcribe_rs::{engines::whisper::WhisperEngine, TranscriptionEngine};
 //!
 //! let mut engine = WhisperEngine::new();
 //! engine.load_model(&PathBuf::from("models/whisper-medium-q4_1.bin"))?;
@@ -29,7 +29,10 @@
 //! println!("Transcription: {}", result.text);
 //!
 //! for segment in result.segments {
-//!     println!("[{:.2}s - {:.2}s]: {}", segment.start, segment.end, segment.text);
+//!     println!(
+//!         "[{:.2}s - {:.2}s]: {}",
+//!         segment.start, segment.end, segment.text
+//!     );
 //! }
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
@@ -45,6 +48,9 @@
 pub mod audio;
 pub mod engines;
 
+pub mod remote;
+pub use remote::RemoteTranscriptionEngine;
+
 use std::path::Path;
 
 /// The result of a transcription operation.
@@ -56,7 +62,7 @@ pub struct TranscriptionResult {
     /// The complete transcribed text from the audio
     pub text: String,
     /// Individual segments with timing information
-    pub segments: Vec<TranscriptionSegment>,
+    pub segments: Option<Vec<TranscriptionSegment>>,
 }
 
 /// A single transcribed segment with timing information.
@@ -83,8 +89,8 @@ pub struct TranscriptionSegment {
 /// ## Using Whisper Engine
 ///
 /// ```rust,no_run
-/// use transcribe_rs::{TranscriptionEngine, engines::whisper::WhisperEngine};
 /// use std::path::PathBuf;
+/// use transcribe_rs::{engines::whisper::WhisperEngine, TranscriptionEngine};
 ///
 /// let mut engine = WhisperEngine::new();
 /// engine.load_model(&PathBuf::from("models/whisper-medium-q4_1.bin"))?;
@@ -97,13 +103,16 @@ pub struct TranscriptionSegment {
 /// ## Using Parakeet Engine
 ///
 /// ```rust,no_run
-/// use transcribe_rs::{TranscriptionEngine, engines::parakeet::{ParakeetEngine, ParakeetModelParams}};
 /// use std::path::PathBuf;
+/// use transcribe_rs::{
+///     engines::parakeet::{ParakeetEngine, ParakeetModelParams},
+///     TranscriptionEngine,
+/// };
 ///
 /// let mut engine = ParakeetEngine::new();
 /// engine.load_model_with_params(
 ///     &PathBuf::from("models/parakeet-v0.3"),
-///     ParakeetModelParams::int8()
+///     ParakeetModelParams::int8(),
 /// )?;
 ///
 /// let result = engine.transcribe_file(&PathBuf::from("audio.wav"), None)?;
