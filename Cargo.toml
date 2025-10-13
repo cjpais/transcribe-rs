@@ -1,6 +1,6 @@
 [package]
 name = "transcribe-rs"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 description = "A simple library to help you transcribe audio"
 license = "MIT"
@@ -11,7 +11,6 @@ hound = "3.5.1"
 log = "0.4.28"
 ndarray = "0.16.1"
 ort = { version = "2.0.0-rc.10" }
-whisper-rs = "0.13.2"
 env_logger = "0.10.0"
 regex = "1.11.2"
 thiserror = "2.0.16"
