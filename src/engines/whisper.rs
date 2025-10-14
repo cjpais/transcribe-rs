@@ -28,8 +28,10 @@
 //! let result = engine.transcribe_file(&PathBuf::from("audio.wav"), None)?;
 //! println!("Transcription: {}", result.text);
 //!
-//! for segment in result.segments {
-//!     println!("[{:.2}s - {:.2}s]: {}", segment.start, segment.end, segment.text);
+//! if let Some(segments) = result.segments {
+//!     for segment in segments {
+//!         println!("[{:.2}s - {:.2}s]: {}", segment.start, segment.end, segment.text);
+//!     }
 //! }
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
@@ -273,7 +275,7 @@ impl TranscriptionEngine for WhisperEngine {
 
         Ok(TranscriptionResult {
             text: full_text.trim().to_string(),
-            segments,
+            segments: Some(segments),
         })
     }
 }

@@ -72,12 +72,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("Transcription result:");
             println!("{}", result.text);
 
-            println!("\nSegments:");
-            for segment in result.segments {
-                println!(
-                    "[{:.2}s - {:.2}s]: {}",
-                    segment.start, segment.end, segment.text
-                );
+            if let Some(segments) = result.segments {
+                println!("\nSegments:");
+                for segment in segments {
+                    println!(
+                        "[{:.2}s - {:.2}s]: {}",
+                        segment.start, segment.end, segment.text
+                    );
+                }
             }
 
             engine.unload_model();
@@ -117,12 +119,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("Transcription result:");
             println!("{}", result.text);
 
-            println!("\nSegments:");
-            for segment in result.segments {
-                println!(
-                    "[{:.2}s - {:.2}s]: {}",
-                    segment.start, segment.end, segment.text
-                );
+            if let Some(segments) = result.segments {
+                println!("\nSegments:");
+                for segment in segments {
+                    println!(
+                        "[{:.2}s - {:.2}s]: {}",
+                        segment.start, segment.end, segment.text
+                    );
+                }
             }
 
             engine.unload_model();
