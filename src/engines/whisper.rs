@@ -36,7 +36,7 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
-//! ## With Custom Parameters
+//! ## With Custom Parameters and Initial Prompt
 //!
 //! ```rust,no_run
 //! use transcribe_rs::{TranscriptionEngine, engines::whisper::{WhisperEngine, WhisperInferenceParams}};
@@ -51,6 +51,7 @@
 //!     print_timestamps: true,
 //!     suppress_blank: true,
 //!     no_speech_thold: 0.6,
+//!     initial_prompt: Some("This is a conversation about technology and AI.".to_string()),
 //!     ..Default::default()
 //! };
 //!
@@ -105,6 +106,12 @@ pub struct WhisperInferenceParams {
 
     /// Threshold for detecting silence/no-speech segments (0.0-1.0).
     pub no_speech_thold: f32,
+
+    /// Initial prompt to provide context to the model.
+    /// This can be used to improve transcription accuracy by providing
+    /// context, vocabulary hints, or style guidance to the model.
+    /// Limited to 224 tokens maximum.
+    pub initial_prompt: Option<String>,
 }
 
 impl Default for WhisperInferenceParams {
@@ -119,6 +126,7 @@ impl Default for WhisperInferenceParams {
             suppress_blank: true,
             suppress_non_speech_tokens: true,
             no_speech_thold: 0.2,
+            initial_prompt: None,
         }
     }
 }
@@ -238,6 +246,10 @@ impl TranscriptionEngine for WhisperEngine {
         full_params.set_suppress_blank(whisper_params.suppress_blank);
         full_params.set_suppress_non_speech_tokens(whisper_params.suppress_non_speech_tokens);
         full_params.set_no_speech_thold(whisper_params.no_speech_thold);
+        
+        if let Some(ref prompt) = whisper_params.initial_prompt {
+            full_params.set_initial_prompt(prompt);
+        }
 
         state.full(full_params, &samples)?;
 
