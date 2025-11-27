@@ -48,7 +48,9 @@
 //! - Mono (single channel)
 
 pub mod audio;
+pub mod chunking;
 pub mod engines;
+pub mod vad;
 
 pub mod remote;
 pub use remote::RemoteTranscriptionEngine;
@@ -198,5 +200,31 @@ pub trait TranscriptionEngine {
     ) -> Result<TranscriptionResult, Box<dyn std::error::Error>> {
         let samples = audio::read_wav_samples(wav_path)?;
         self.transcribe_samples(samples, params)
+    }
+
+    /// Transcribe audio using smart chunking to split on silence.
+    ///
+    /// # Arguments
+    ///
+    /// * `samples` - Audio samples as f32 values
+    /// * `vad_model_path` - Path to the Silero VAD model
+    /// * `params` - Optional engine-specific inference parameters
+    fn transcribe_with_smart_chunking(
+        &mut self,
+        samples: Vec<f32>,
+        vad_model_path: &Path,
+        params: Option<Self::InferenceParams>,
+    ) -> Result<String, Box<dyn std::error::Error>>
+    where
+        Self::InferenceParams: Clone,
+    {
+        let params = params.clone();
+        chunking::SmartChunker::chunk_audio(&samples, vad_model_path, |chunk| {
+            let result = self
+                .transcribe_samples(chunk, params.clone())
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            Ok(result.text)
+        })
+        .map_err(|e| e.into())
     }
 }
