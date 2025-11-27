@@ -8,7 +8,7 @@ pub struct SileroVad {
     session: Session,
     h: Array3<f32>,
     c: Array3<f32>,
-    sr: ArrayBase<OwnedRepr<f32>, Dim<[usize; 1]>>,
+    sr: ArrayBase<OwnedRepr<i64>, Dim<[usize; 1]>>,
 }
 
 impl SileroVad {
@@ -22,7 +22,7 @@ impl SileroVad {
             session,
             h: Array::zeros((2, 1, 64)),
             c: Array::zeros((2, 1, 64)),
-            sr: Array::from_elem((1,), 16000.0),
+            sr: Array::from_elem((1,), 16000_i64),
         })
     }
 

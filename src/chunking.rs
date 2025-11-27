@@ -1,14 +1,20 @@
 use crate::vad::SileroVad;
 use anyhow::Result;
-use log::{debug, warn};
+use log::{debug, info, warn};
 use std::path::Path;
 
 pub struct SmartChunker;
 
 impl SmartChunker {
-    pub fn chunk_audio<F>(audio: &[f32], vad_model_path: &Path, mut callback: F) -> Result<String>
+    pub fn chunk_audio<F, P>(
+        audio: &[f32],
+        vad_model_path: &Path,
+        mut callback: F,
+        mut progress_callback: P,
+    ) -> Result<String>
     where
         F: FnMut(Vec<f32>) -> Result<String>,
+        P: FnMut(f64),
     {
         // Smart Chunking Configuration
         const TARGET_CHUNK_DURATION_SECONDS: usize = 30;
@@ -108,6 +114,10 @@ impl SmartChunker {
 
             // Move to next chunk
             start_idx = end_idx;
+
+            // Report progress
+            let progress = (start_idx as f64 / total_samples as f64) * 100.0;
+            progress_callback(progress);
         }
 
         Ok(full_transcription)

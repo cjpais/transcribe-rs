@@ -209,22 +209,29 @@ pub trait TranscriptionEngine {
     /// * `samples` - Audio samples as f32 values
     /// * `vad_model_path` - Path to the Silero VAD model
     /// * `params` - Optional engine-specific inference parameters
-    fn transcribe_with_smart_chunking(
+    fn transcribe_with_smart_chunking<P>(
         &mut self,
         samples: Vec<f32>,
         vad_model_path: &Path,
         params: Option<Self::InferenceParams>,
+        progress_callback: P,
     ) -> Result<String, Box<dyn std::error::Error>>
     where
         Self::InferenceParams: Clone,
+        P: FnMut(f64),
     {
         let params = params.clone();
-        chunking::SmartChunker::chunk_audio(&samples, vad_model_path, |chunk| {
-            let result = self
-                .transcribe_samples(chunk, params.clone())
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-            Ok(result.text)
-        })
+        chunking::SmartChunker::chunk_audio(
+            &samples,
+            vad_model_path,
+            |chunk| {
+                let result = self
+                    .transcribe_samples(chunk, params.clone())
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                Ok(result.text)
+            },
+            progress_callback,
+        )
         .map_err(|e| e.into())
     }
 }
