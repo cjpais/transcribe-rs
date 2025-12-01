@@ -20,6 +20,8 @@ async-openai = { version = "0.29.3" }
 anyhow = "1.0"
 async-trait = { version = "0.1.89" }
 derive_builder = { version = "0.20.2" }
+rubato = "0.16.2"
+symphonia = { version = "0.5.4", features = ["mp3", "isomp4", "pcm", "all-codecs"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 whisper-rs = { version = "0.13.2", features = ["metal"] }

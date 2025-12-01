@@ -41,13 +41,20 @@ async fn test_smart_chunking() -> Result<()> {
 
     // 3. Run smart chunking
     // We'll use a dummy callback that just returns "chunk"
-    let result = SmartChunker::chunk_audio(&audio, &model_path, |chunk| {
-        println!("Processing chunk of size: {}", chunk.len());
-        // Verify chunk size is roughly 30s (30 * 16000 = 480000 samples)
-        // The first chunk should end around 30s (silence start)
-        // It might be slightly less or more depending on VAD window
-        Ok("chunk".to_string())
-    })?;
+    let result = SmartChunker::chunk_audio(
+        &audio,
+        &model_path,
+        |chunk| {
+            println!("Processing chunk of size: {}", chunk.len());
+            // Verify chunk size is roughly 30s (30 * 16000 = 480000 samples)
+            // The first chunk should end around 30s (silence start)
+            // It might be slightly less or more depending on VAD window
+            Ok("chunk".to_string())
+        },
+        |progress| {
+            println!("Progress: {:.2}%", progress);
+        },
+    )?;
 
     println!("Result: {}", result);
     assert!(!result.is_empty());
