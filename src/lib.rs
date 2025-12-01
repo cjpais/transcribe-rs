@@ -48,7 +48,9 @@
 //! - Mono (single channel)
 
 pub mod audio;
+pub mod chunking;
 pub mod engines;
+pub mod vad;
 
 pub mod remote;
 pub use remote::RemoteTranscriptionEngine;
@@ -175,17 +177,14 @@ pub trait TranscriptionEngine {
         params: Option<Self::InferenceParams>,
     ) -> Result<TranscriptionResult, Box<dyn std::error::Error>>;
 
-    /// Transcribe audio from a WAV file.
+    /// Transcribe audio from a file.
     ///
-    /// The WAV file must meet the following requirements:
-    /// - 16 kHz sample rate
-    /// - 16-bit samples
-    /// - Mono (single channel)
-    /// - PCM format
+    /// Supports various audio formats (WAV, MP3, M4A, etc.) by automatically decoding
+    /// and resampling to the required 16kHz mono format.
     ///
     /// # Arguments
     ///
-    /// * `wav_path` - Path to the WAV file to transcribe
+    /// * `audio_path` - Path to the audio file to transcribe
     /// * `params` - Optional engine-specific inference parameters
     ///
     /// # Returns
@@ -193,10 +192,44 @@ pub trait TranscriptionEngine {
     /// Returns transcription result with text and timing information.
     fn transcribe_file(
         &mut self,
-        wav_path: &Path,
+        audio_path: &Path,
         params: Option<Self::InferenceParams>,
     ) -> Result<TranscriptionResult, Box<dyn std::error::Error>> {
-        let samples = audio::read_wav_samples(wav_path)?;
+        let samples = audio::decode_and_resample(audio_path)
+            .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
         self.transcribe_samples(samples, params)
+    }
+
+    /// Transcribe audio using smart chunking to split on silence.
+    ///
+    /// # Arguments
+    ///
+    /// * `samples` - Audio samples as f32 values
+    /// * `vad_model_path` - Path to the Silero VAD model
+    /// * `params` - Optional engine-specific inference parameters
+    fn transcribe_with_smart_chunking<P>(
+        &mut self,
+        samples: Vec<f32>,
+        vad_model_path: &Path,
+        params: Option<Self::InferenceParams>,
+        progress_callback: P,
+    ) -> Result<String, Box<dyn std::error::Error>>
+    where
+        Self::InferenceParams: Clone,
+        P: FnMut(f64),
+    {
+        let params = params.clone();
+        chunking::SmartChunker::chunk_audio(
+            &samples,
+            vad_model_path,
+            |chunk| {
+                let result = self
+                    .transcribe_samples(chunk, params.clone())
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                Ok(result.text)
+            },
+            progress_callback,
+        )
+        .map_err(|e| e.into())
     }
 }

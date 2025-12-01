@@ -3,6 +3,9 @@
 //! This module provides functions for reading and processing audio files
 //! to prepare them for transcription engines.
 
+pub mod decoder;
+pub use decoder::*;
+
 use std::path::Path;
 
 /// Read WAV file samples and convert them to the required format.
