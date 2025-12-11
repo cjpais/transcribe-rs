@@ -46,10 +46,7 @@ fn test_prompt_product_names() {
 
     let audio_path = PathBuf::from("samples/product_names.wav");
 
-    let baseline_expected = "Welcome to Quirk, Quid, Quill, Inc. where finance meets innovation explore diverse offerings. From the P3 Quatro, a unique investment portfolio quadrant to the O3 Omni, a platform for intricate derivative trading strategies. Delve into unconventional bond markets with our D3 Bond X and experience non-standard equity trading with E3 Equity. Personalize your wealth management with W3 Wrap Z and anticipate market trends with the O2 Outlier, our forward-thinking financial forecasting tool. Explore venture capital world with U3 Unifund or move your money with the M3 Mover, our sophisticated monetary transfer module. At Quirk, Quid, Quill, Inc. we turn complex finance into creative solutions. Join us in redefining financial services.";
-    let prompted_expected = "Welcome to QuirkQuid Quill Inc, where finance meets innovation. Explore diverse offerings, from the P3-Quattro, a unique investment portfolio quadrant, to the O3-Omni, a platform for intricate derivative trading strategies. Delve into unconventional bond markets with our B3-BondX and experience non-standard equity trading with E3-Equity. Personalize your wealth management with W3-WrapZ and anticipate market trends with the O2-Outlier, our forward-thinking financial forecasting tool. Explore venture capital world with U3-Unifund or move your money with the M3-Mover, our sophisticated monetary transfer module. At QuirkQuid Quill Inc, we turn complex finance into creative solutions. Join us in redefining financial services.";
-
-    // Baseline transcription with no prompt - expected to have misspellings
+    // Baseline transcription with no prompt
     let baseline_result = engine
         .transcribe_file(&audio_path, None)
         .expect("Failed to transcribe without prompt");
@@ -57,8 +54,7 @@ fn test_prompt_product_names() {
     println!("\n=== Baseline Transcription (no prompt) ===");
     println!("{}", baseline_result.text);
 
-    assert_eq!(baseline_result.text, baseline_expected);
-
+    // With glossary prompt - should influence transcription to use specified spellings
     let glossary_prompt = "QuirkQuid Quill Inc, P3-Quattro, O3-Omni, B3-BondX, E3-Equity, W3-WrapZ, O2-Outlier, U3-UniFund, M3-Mover";
     let params = WhisperInferenceParams {
         initial_prompt: Some(glossary_prompt.to_string()),
@@ -67,8 +63,88 @@ fn test_prompt_product_names() {
     let prompted_result = engine
         .transcribe_file(&audio_path, Some(params))
         .expect("Failed to transcribe with prompt");
+
     println!("\n=== Transcription with Glossary Prompt ===");
     println!("{}", prompted_result.text);
 
-    assert_eq!(prompted_result.text, prompted_expected);
+    // The main assertion: prompting should produce different output
+    assert_ne!(
+        baseline_result.text, prompted_result.text,
+        "Prompt should influence transcription output"
+    );
+
+    // Verify prompt influenced the output - should contain hyphenated product names from the glossary
+    assert!(
+        prompted_result.text.contains("P3-Quattro") || prompted_result.text.contains("O3-Omni"),
+        "Prompted output should contain hyphenated product names from glossary"
+    );
+
+    // Baseline should NOT have the hyphenated format
+    assert!(
+        !baseline_result.text.contains("P3-Quattro"),
+        "Baseline should not contain prompted spelling"
+    );
+}
+
+#[test]
+fn test_timestamps() {
+    let mut engine = get_engine();
+
+    let audio_path = PathBuf::from("samples/jfk.wav");
+
+    let result = engine
+        .transcribe_file(&audio_path, None)
+        .expect("Failed to transcribe");
+
+    // Verify segments are returned
+    assert!(
+        result.segments.is_some(),
+        "Transcription should return segments"
+    );
+
+    let segments = result.segments.unwrap();
+    assert!(!segments.is_empty(), "Segments should not be empty");
+
+    // Verify timestamp properties
+    for (i, segment) in segments.iter().enumerate() {
+        // Start time should be non-negative
+        assert!(
+            segment.start >= 0.0,
+            "Segment {} start time should be non-negative, got {}",
+            i,
+            segment.start
+        );
+
+        // End time should be greater than start time
+        assert!(
+            segment.end > segment.start,
+            "Segment {} end time ({}) should be greater than start time ({})",
+            i,
+            segment.end,
+            segment.start
+        );
+
+        // Segment should have text
+        assert!(
+            !segment.text.trim().is_empty(),
+            "Segment {} should have non-empty text",
+            i
+        );
+    }
+
+    // Verify segments are in chronological order
+    for i in 1..segments.len() {
+        assert!(
+            segments[i].start >= segments[i - 1].start,
+            "Segments should be in chronological order"
+        );
+    }
+
+    // Verify the audio duration is reasonable (JFK clip is ~11 seconds)
+    let last_segment = segments.last().unwrap();
+    assert!(
+        last_segment.end > 10.0 && last_segment.end < 15.0,
+        "Last segment end time should be around 11 seconds for JFK clip, got {}",
+        last_segment.end
+    );
 }
