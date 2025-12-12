@@ -44,3 +44,4 @@
 
 pub mod parakeet;
 pub mod whisper;
+pub mod whisperfile;

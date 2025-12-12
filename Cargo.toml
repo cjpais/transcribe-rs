@@ -8,6 +8,9 @@ repository = "https://github.com/cjpais/transcribe-rs"
 
 [dependencies]
 hound = "3.5.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+reqwest = { version = "0.12", features = ["blocking", "multipart"] }
 log = "0.4.28"
 ndarray = "0.16.1"
 ort = { version = "2.0.0-rc.10" }
