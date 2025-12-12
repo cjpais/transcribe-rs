@@ -8,7 +8,7 @@ use transcribe_rs::TranscriptionEngine;
 fn binary_path() -> PathBuf {
     std::env::var("WHISPERFILE_BIN")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("/Users/cj/Downloads/whisperfile-0.9.3"))
+        .unwrap_or_else(|_| PathBuf::from("models/whisperfile-0.9.3"))
 }
 
 // Path to model - can be overridden with WHISPERFILE_MODEL env var
@@ -69,9 +69,7 @@ fn get_engine() -> Option<std::sync::MutexGuard<'static, Option<WhisperfileEngin
 macro_rules! skip_if_unavailable {
     () => {
         if !binary_available() || !model_path().exists() {
-            eprintln!(
-                "Skipping test: whisperfile binary or model not available"
-            );
+            eprintln!("Skipping test: whisperfile binary or model not available");
             return;
         }
     };
@@ -235,10 +233,7 @@ fn test_transcribe_samples() {
         .expect("Failed to transcribe samples");
 
     // Verify we got a transcription
-    assert!(
-        !result.text.is_empty(),
-        "Transcription should not be empty"
-    );
+    assert!(!result.text.is_empty(), "Transcription should not be empty");
 
     let text_lower = result.text.to_lowercase();
     assert!(
@@ -280,10 +275,7 @@ fn test_language_parameter() {
         .expect("Failed to transcribe with language parameter");
 
     // Should still get valid transcription
-    assert!(
-        !result.text.is_empty(),
-        "Transcription should not be empty"
-    );
+    assert!(!result.text.is_empty(), "Transcription should not be empty");
 
     let text_lower = result.text.to_lowercase();
     assert!(

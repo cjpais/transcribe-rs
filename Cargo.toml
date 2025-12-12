@@ -6,29 +6,100 @@ description = "A simple library to help you transcribe audio"
 license = "MIT"
 repository = "https://github.com/cjpais/transcribe-rs"
 
+[features]
+default = []
+
+# Local engines
+whisper = ["dep:whisper-rs"]
+parakeet = ["dep:ort", "dep:ndarray", "dep:regex", "dep:once_cell"]
+moonshine = ["dep:ort", "dep:ndarray", "dep:tokenizers"]
+whisperfile = ["dep:reqwest"]
+
+# Remote engines
+openai = ["dep:async-openai", "dep:tokio", "dep:async-trait"]
+
+# Convenience
+all = ["whisper", "parakeet", "moonshine", "whisperfile", "openai"]
+
 [dependencies]
+# Always required
 hound = "3.5.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-reqwest = { version = "0.12", features = ["blocking", "multipart"] }
 log = "0.4.28"
-ndarray = "0.16.1"
-ort = { version = "2.0.0-rc.10" }
 env_logger = "0.10.0"
-regex = "1.11.2"
 thiserror = "2.0.16"
-once_cell = "1.21.3"
-tokenizers = "0.22"
-tokio = { version = "1.47.1", features = ["rt-multi-thread"] }
-async-openai = { version = "0.29.3" }
-async-trait = { version = "0.1.89" }
 derive_builder = { version = "0.20.2" }
 
+# Parakeet & Moonshine (ONNX-based)
+ort = { version = "2.0.0-rc.10", optional = true }
+ndarray = { version = "0.16.1", optional = true }
+
+# Parakeet only
+regex = { version = "1.11.2", optional = true }
+once_cell = { version = "1.21.3", optional = true }
+
+# Moonshine only
+tokenizers = { version = "0.22", optional = true }
+
+# Whisperfile
+reqwest = { version = "0.12", features = ["blocking", "multipart"], optional = true }
+
+# OpenAI
+tokio = { version = "1.47.1", features = ["rt-multi-thread"], optional = true }
+async-openai = { version = "0.29.3", optional = true }
+async-trait = { version = "0.1.89", optional = true }
+
 [target.'cfg(target_os = "macos")'.dependencies]
-whisper-rs = { version = "0.15.1", features = ["metal"] }
+whisper-rs = { version = "0.15.1", features = ["metal"], optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-whisper-rs = { version = "0.15.1", features = ["vulkan"] }
+whisper-rs = { version = "0.15.1", features = ["vulkan"], optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-whisper-rs = { version = "0.15.1", features = ["vulkan"] }
+whisper-rs = { version = "0.15.1", features = ["vulkan"], optional = true }
+
+# Examples with required features
+[[example]]
+name = "parakeet"
+required-features = ["parakeet"]
+
+[[example]]
+name = "whisper"
+required-features = ["whisper"]
+
+[[example]]
+name = "moonshine"
+required-features = ["moonshine"]
+
+[[example]]
+name = "whisperfile"
+required-features = ["whisperfile"]
+
+[[example]]
+name = "openai"
+required-features = ["openai"]
+
+[dev-dependencies]
+once_cell = "1.21.3"
+
+# Tests with required features
+[[test]]
+name = "parakeet"
+required-features = ["parakeet"]
+
+[[test]]
+name = "whisper"
+required-features = ["whisper"]
+
+[[test]]
+name = "moonshine"
+required-features = ["moonshine"]
+
+[[test]]
+name = "whisperfile"
+required-features = ["whisperfile"]
+
+[[test]]
+name = "openai"
+required-features = ["openai"]
