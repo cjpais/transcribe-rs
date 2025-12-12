@@ -58,4 +58,4 @@ pub mod engine;
 pub mod model;
 mod tokenizer;
 
-pub use engine::{MoonshineEngine, MoonshineInferenceParams, MoonshineModelParams, ModelVariant};
+pub use engine::{ModelVariant, MoonshineEngine, MoonshineInferenceParams, MoonshineModelParams};

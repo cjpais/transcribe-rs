@@ -117,7 +117,10 @@ impl MoonshineModel {
         let audio_dyn = audio.clone().into_dyn();
 
         // Check if encoder expects attention_mask
-        let outputs = if self.encoder_input_names.contains(&"attention_mask".to_string()) {
+        let outputs = if self
+            .encoder_input_names
+            .contains(&"attention_mask".to_string())
+        {
             let attention_mask =
                 Array2::<i64>::ones((audio.shape()[0], audio.shape()[1])).into_dyn();
             let inputs = inputs![
@@ -140,7 +143,11 @@ impl MoonshineModel {
         Ok(hidden_state.to_owned())
     }
 
-    pub fn generate(&mut self, samples: &[f32], max_length: usize) -> Result<Vec<i64>, MoonshineError> {
+    pub fn generate(
+        &mut self,
+        samples: &[f32],
+        max_length: usize,
+    ) -> Result<Vec<i64>, MoonshineError> {
         // Validate audio duration
         let audio_duration = samples.len() as f32 / SAMPLE_RATE as f32;
         if audio_duration < 0.1 || audio_duration > 64.0 {
@@ -154,10 +161,7 @@ impl MoonshineModel {
         // Run encoder once
         log::trace!("Running encoder...");
         let encoder_hidden_states = self.encode(&audio)?;
-        log::trace!(
-            "Encoder output shape: {:?}",
-            encoder_hidden_states.shape()
-        );
+        log::trace!("Encoder output shape: {:?}", encoder_hidden_states.shape());
 
         // Initialize KV cache
         let mut cache = KVCache::new(&self.variant);
@@ -206,10 +210,7 @@ impl MoonshineModel {
 
             // Add all cache inputs
             for (name, arr) in cache_inputs {
-                ort_inputs.push((
-                    name.into(),
-                    ort::value::Value::from_array(arr)?.into_dyn(),
-                ));
+                ort_inputs.push((name.into(), ort::value::Value::from_array(arr)?.into_dyn()));
             }
 
             // Run decoder

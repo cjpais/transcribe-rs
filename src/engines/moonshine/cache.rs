@@ -28,8 +28,7 @@ impl KVCache {
             for attention_type in &["decoder", "encoder"] {
                 for kv_type in &["key", "value"] {
                     let key = format!("past_key_values.{}.{}.{}", i, attention_type, kv_type);
-                    let empty_tensor =
-                        ArrayD::<f32>::zeros(IxDyn(&[0, num_heads, 1, head_dim]));
+                    let empty_tensor = ArrayD::<f32>::zeros(IxDyn(&[0, num_heads, 1, head_dim]));
                     cache.insert(key, empty_tensor);
                 }
             }
@@ -79,8 +78,7 @@ impl KVCache {
                 for kv_type in &["key", "value"] {
                     // Output names are "present.{i}.{type}.{kv}" (not "present_key_values")
                     let output_key = format!("present.{}.{}.{}", i, attention_type, kv_type);
-                    let cache_key =
-                        format!("past_key_values.{}.{}.{}", i, attention_type, kv_type);
+                    let cache_key = format!("past_key_values.{}.{}.{}", i, attention_type, kv_type);
 
                     if let Some(output) = outputs.get(&output_key) {
                         let tensor = output
