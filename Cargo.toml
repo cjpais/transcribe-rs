@@ -13,7 +13,7 @@ default = []
 whisper = ["dep:whisper-rs"]
 parakeet = ["dep:ort", "dep:ndarray", "dep:regex", "dep:once_cell"]
 moonshine = ["dep:ort", "dep:ndarray", "dep:tokenizers"]
-whisperfile = ["dep:reqwest"]
+whisperfile = ["dep:ureq"]
 
 # Remote engines
 openai = ["dep:async-openai", "dep:tokio", "dep:async-trait"]
@@ -43,7 +43,7 @@ once_cell = { version = "1.21.3", optional = true }
 tokenizers = { version = "0.22", optional = true }
 
 # Whisperfile
-reqwest = { version = "0.12", features = ["blocking", "multipart"], optional = true }
+ureq = { version = "3", optional = true }
 
 # OpenAI
 tokio = { version = "1.47.1", features = ["rt-multi-thread"], optional = true }
