@@ -39,6 +39,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         port: 8080,
         host: "127.0.0.1".to_string(),
         startup_timeout_secs: 60,
+        ..Default::default()
     };
 
     engine.load_model_with_params(&model_path, model_params)?;
