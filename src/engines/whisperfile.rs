@@ -148,6 +148,41 @@ impl From<WhisperfileOutput> for TranscriptionResult {
     }
 }
 
+/// GPU acceleration mode for Whisperfile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GPUMode {
+    /// Auto-detect the best available GPU (default)
+    #[default]
+    Auto,
+    /// Use Apple Metal (macOS)
+    Apple,
+    /// Use AMD GPU
+    Amd,
+    /// Use NVIDIA GPU
+    Nvidia,
+    /// Disable GPU acceleration
+    Disabled,
+}
+
+impl GPUMode {
+    /// Get the command-line argument value for this GPU mode.
+    pub fn as_arg(&self) -> &'static str {
+        match self {
+            GPUMode::Auto => "auto",
+            GPUMode::Apple => "apple",
+            GPUMode::Amd => "amd",
+            GPUMode::Nvidia => "nvidia",
+            GPUMode::Disabled => "disabled",
+        }
+    }
+}
+
+impl std::fmt::Display for GPUMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_arg())
+    }
+}
+
 /// Parameters for configuring Whisperfile model loading.
 #[derive(Debug, Clone)]
 pub struct WhisperfileModelParams {
@@ -157,6 +192,8 @@ pub struct WhisperfileModelParams {
     pub host: String,
     /// Timeout in seconds to wait for server to start (default: 30)
     pub startup_timeout_secs: u64,
+    /// GPU acceleration mode (default: Auto)
+    pub gpu: GPUMode,
 }
 
 impl Default for WhisperfileModelParams {
@@ -165,6 +202,7 @@ impl Default for WhisperfileModelParams {
             port: 8080,
             host: "127.0.0.1".to_string(),
             startup_timeout_secs: 30,
+            gpu: GPUMode::default(),
         }
     }
 }
@@ -326,11 +364,12 @@ impl TranscriptionEngine for WhisperfileEngine {
         self.server_url = format!("http://{}:{}", params.host, params.port);
 
         info!(
-            "Starting whisperfile server: binary={}, model={}, host={}, port={}",
+            "Starting whisperfile server: binary={}, model={}, host={}, port={}, gpu={}",
             self.binary_path.display(),
             model_path.display(),
             params.host,
-            params.port
+            params.port,
+            params.gpu
         );
 
         // Spawn the server process with stderr piped for logging
@@ -342,6 +381,8 @@ impl TranscriptionEngine for WhisperfileEngine {
             .arg(&params.host)
             .arg("--port")
             .arg(params.port.to_string())
+            .arg("--gpu")
+            .arg(params.gpu.as_arg())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .spawn()
