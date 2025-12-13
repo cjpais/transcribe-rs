@@ -7,7 +7,7 @@ fn test_moonshine_base_jfk() {
     let mut engine = MoonshineEngine::new();
 
     // Load the model
-    let model_path = PathBuf::from("models/moonshine-base-fp");
+    let model_path = PathBuf::from("models/moonshine-base");
     engine
         .load_model_with_params(
             &model_path,

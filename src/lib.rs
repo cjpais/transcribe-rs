@@ -18,7 +18,12 @@
 //!
 //! ## Quick Start
 //!
-//! ```rust,no_run
+//! ```toml
+//! [dependencies]
+//! transcribe-rs = { version = "0.2", features = ["whisper"] }
+//! ```
+//!
+//! ```ignore
 //! use std::path::PathBuf;
 //! use transcribe_rs::{engines::whisper::WhisperEngine, TranscriptionEngine};
 //!
@@ -50,7 +55,9 @@
 pub mod audio;
 pub mod engines;
 
+#[cfg(feature = "openai")]
 pub mod remote;
+#[cfg(feature = "openai")]
 pub use remote::RemoteTranscriptionEngine;
 
 use std::path::Path;
@@ -88,9 +95,9 @@ pub struct TranscriptionSegment {
 ///
 /// # Examples
 ///
-/// ## Using Whisper Engine
+/// ## Using Whisper Engine (requires `whisper` feature)
 ///
-/// ```rust,no_run
+/// ```ignore
 /// use std::path::PathBuf;
 /// use transcribe_rs::{engines::whisper::WhisperEngine, TranscriptionEngine};
 ///
@@ -102,9 +109,9 @@ pub struct TranscriptionSegment {
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 ///
-/// ## Using Parakeet Engine
+/// ## Using Parakeet Engine (requires `parakeet` feature)
 ///
-/// ```rust,no_run
+/// ```ignore
 /// use std::path::PathBuf;
 /// use transcribe_rs::{
 ///     engines::parakeet::{ParakeetEngine, ParakeetModelParams},

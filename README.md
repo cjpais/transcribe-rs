@@ -11,6 +11,33 @@ This library was extracted from the [Handy](https://github.com/cjpais/handy) pro
 - **Hardware Acceleration**: Metal on macOS, Vulkan on Windows/Linux
 - **Flexible API**: Common interface for different transcription engines
 - **Multi-language Support**: Moonshine supports English, Arabic, Chinese, Japanese, Korean, Ukrainian, Vietnamese, and Spanish
+- **Opt-in Dependencies**: Only compile and link the engines you need via Cargo features
+
+## Installation
+
+Add transcribe-rs to your `Cargo.toml` with the features you need:
+
+```toml
+[dependencies]
+# Include only the engines you want to use
+transcribe-rs = { version = "0.1.5", features = ["parakeet", "moonshine"] }
+
+# Or enable all engines
+transcribe-rs = { version = "0.1.5", features = ["all"] }
+```
+
+### Available Features
+
+| Feature | Description | Dependencies |
+|---------|-------------|--------------|
+| `whisper` | OpenAI Whisper (local, GGML format) | whisper-rs with Metal/Vulkan |
+| `parakeet` | NVIDIA Parakeet (ONNX) | ort, ndarray |
+| `moonshine` | UsefulSensors Moonshine (ONNX) | ort, ndarray, tokenizers |
+| `whisperfile` | Mozilla whisperfile server wrapper | reqwest |
+| `openai` | OpenAI API (remote) | async-openai, tokio |
+| `all` | All engines enabled | All of the above |
+
+**Note**: By default, no features are enabled. You must explicitly choose which engines to include.
 
 ## Parakeet Performance
 
@@ -72,7 +99,9 @@ models/moonshine-tiny/
 
 ## Model Downloads
 
-- **Parakeet**: https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/tree/main
+- **Parakeet**:
+  - Pre-packaged int8 quantized model: https://blob.handy.computer/parakeet-v3-int8.tar.gz
+  - Original model files: https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/tree/main
 - **Whisper**: https://huggingface.co/ggerganov/whisper.cpp/tree/main
 - **Whisperfile Binary**: https://github.com/mozilla-ai/llamafile/releases/download/0.9.3/whisperfile-0.9.3
 - **Moonshine**: https://huggingface.co/UsefulSensors/moonshine/tree/main/onnx/merged
@@ -178,23 +207,23 @@ println!("{}", result.text);
 
 ### Running the Examples
 
-Each engine has its own example file:
+Each engine has its own example file. You must specify the required feature when running:
 
 ```bash
 # Run Parakeet example (recommended for performance)
-cargo run --example parakeet
+cargo run --example parakeet --features parakeet
 
 # Run Whisper example
-cargo run --example whisper
+cargo run --example whisper --features whisper
 
 # Run Whisperfile example
-cargo run --example whisperfile
+cargo run --example whisperfile --features whisperfile
 
 # Run Moonshine example
-cargo run --example moonshine
+cargo run --example moonshine --features moonshine
 
 # Run OpenAI API example
-cargo run --example openai
+cargo run --example openai --features openai
 ```
 
 Each example will:
@@ -203,10 +232,102 @@ Each example will:
 - Display timing information and transcription results
 - Show real-time speedup factor
 
+## Running Tests
+
+### Running Individual Engine Tests
+
+Tests are feature-gated and require you to specify which engine to test:
+
+```bash
+# Test a specific engine
+cargo test --features parakeet
+cargo test --features whisper
+cargo test --features moonshine
+cargo test --features whisperfile
+cargo test --features openai
+
+# Test multiple engines
+cargo test --features "parakeet,moonshine"
+
+# Test all engines
+cargo test --all-features
+```
+
+### Local Development Shortcuts
+
+The `.cargo/config.toml` file provides convenient aliases for local development:
+
+```bash
+# Run all tests with all features enabled
+cargo test-all
+
+# Check compilation with all features
+cargo check-all
+
+# Build with all features
+cargo build-all
+```
+
+### Test Environment Setup
+
+**For Whisperfile tests:**
+
+The whisperfile tests require:
+1. The whisperfile binary at `models/whisperfile-0.9.3` (or set `WHISPERFILE_BIN` env var)
+2. A Whisper GGML model at `models/ggml-small.bin` (or set `WHISPERFILE_MODEL` env var)
+
+```bash
+# Download whisperfile binary
+wget https://github.com/mozilla-ai/llamafile/releases/download/0.9.3/whisperfile-0.9.3
+mv whisperfile-0.9.3 models/
+chmod +x models/whisperfile-0.9.3
+
+# Download a model
+cd models
+wget https://blob.handy.computer/ggml-small.bin
+cd ..
+
+# Run tests
+cargo test --features whisperfile
+```
+
+**For Moonshine tests:**
+
+Download the Moonshine base model:
+```bash
+mkdir -p models/moonshine-base
+cd models/moonshine-base
+wget https://huggingface.co/UsefulSensors/moonshine/resolve/main/onnx/merged/base/encoder_model.onnx
+wget https://huggingface.co/UsefulSensors/moonshine/resolve/main/onnx/merged/base/decoder_model_merged.onnx
+wget https://huggingface.co/UsefulSensors/moonshine/resolve/main/onnx/merged/base/tokenizer.json
+cd ../..
+
+# Run tests
+cargo test --features moonshine
+```
+
+**For Parakeet tests:**
+
+Download the int8 quantized Parakeet model:
+```bash
+cd models
+wget https://blob.handy.computer/parakeet-v3-int8.tar.gz
+tar -xzf parakeet-v3-int8.tar.gz
+rm parakeet-v3-int8.tar.gz
+cd ..
+
+# Run tests
+cargo test --features parakeet
+```
+
+**For Whisper tests:**
+
+Whisper tests will skip if models are not available in the expected locations.
+
 ## Acknowledgments
 
 - Big thanks to [istupakov](https://github.com/istupakov/onnx-asr) for the excellent ONNX implementation of Parakeet
 - Thanks to NVIDIA for releasing the Parakeet model
 - Thanks to the [whisper.cpp](https://github.com/ggerganov/whisper.cpp) project for the Whisper implementation
-- Thanks to [Mozilla AI](https://github.com/mozilla-ai/llamafile) for the Whisperfile implementation
+- Big thanks to [jart](http://github.com/jart) for [llamafile](https://github.com/mozilla-ai/llamafile). Thanks to [Mozilla AI](https://github.com/mozilla-ai) for maintaining the [Whisperfile](https://github.com/cjpais/whisperfile) implementation
 - Thanks to [UsefulSensors](https://github.com/usefulsensors) for the Moonshine models and ONNX exports
