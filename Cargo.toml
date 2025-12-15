@@ -51,13 +51,13 @@ async-openai = { version = "0.29.3", optional = true }
 async-trait = { version = "0.1.89", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-whisper-rs = { version = "0.15.1", features = ["metal"], optional = true }
+whisper-rs = { version = "0.13.2", features = ["metal"], optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-whisper-rs = { version = "0.15.1", features = ["vulkan"], optional = true }
+whisper-rs = { version = "0.13.2", features = ["vulkan"], optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-whisper-rs = { version = "0.15.1", features = ["vulkan"], optional = true }
+whisper-rs = { version = "0.13.2", features = ["vulkan"], optional = true }
 
 # Examples with required features
 [[example]]

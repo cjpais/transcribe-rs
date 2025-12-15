@@ -244,7 +244,7 @@ impl TranscriptionEngine for WhisperEngine {
         full_params.set_print_realtime(whisper_params.print_realtime);
         full_params.set_print_timestamps(whisper_params.print_timestamps);
         full_params.set_suppress_blank(whisper_params.suppress_blank);
-        full_params.set_suppress_nst(whisper_params.suppress_non_speech_tokens);
+        full_params.set_suppress_non_speech_tokens(whisper_params.suppress_non_speech_tokens);
         full_params.set_no_speech_thold(whisper_params.no_speech_thold);
 
         if let Some(ref prompt) = whisper_params.initial_prompt {
@@ -253,18 +253,22 @@ impl TranscriptionEngine for WhisperEngine {
 
         state.full(full_params, &samples)?;
 
+        let num_segments = state
+            .full_n_segments()
+            .expect("failed to get number of segments");
+
         let mut segments = Vec::new();
         let mut full_text = String::new();
 
-        for segment in state.as_iter() {
-            let text = segment.to_str().expect("failed to get string from segment");
-            let start = segment.start_timestamp() as f32 / 100.0;
-            let end = segment.end_timestamp() as f32 / 100.0;
+        for i in 0..num_segments {
+            let text = state.full_get_segment_text(i)?;
+            let start = state.full_get_segment_t0(i)? as f32 / 100.0;
+            let end = state.full_get_segment_t1(i)? as f32 / 100.0;
 
             segments.push(TranscriptionSegment {
-                start,
+                start,  
                 end,
-                text: text.to_string(),
+                text: text.clone(),
             });
             full_text.push_str(&text);
         }
