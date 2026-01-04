@@ -1,6 +1,6 @@
 [package]
 name = "transcribe-rs"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 description = "A simple library to help you transcribe audio"
 license = "MIT"
@@ -11,9 +11,12 @@ default = []
 
 # Local engines
 whisper = ["dep:whisper-rs"]
-parakeet = ["dep:ort", "dep:ndarray", "dep:regex", "dep:once_cell"]
-moonshine = ["dep:ort", "dep:ndarray", "dep:tokenizers"]
+parakeet = ["dep:ort", "dep:ndarray", "dep:regex", "dep:once_cell", "openvino"]
+moonshine = ["dep:ort", "dep:ndarray", "dep:tokenizers", "openvino"]
 whisperfile = ["dep:ureq"]
+
+# OpenVINO GPU acceleration (Intel iGPU/dGPU)
+openvino = ["ort/openvino"]
 
 # Remote engines
 openai = ["dep:async-openai", "dep:tokio", "dep:async-trait"]

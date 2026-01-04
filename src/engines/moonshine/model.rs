@@ -1,5 +1,5 @@
 use ndarray::{Array2, ArrayD};
-use ort::execution_providers::CPUExecutionProvider;
+use ort::execution_providers::{CPUExecutionProvider, OpenVINOExecutionProvider};
 use ort::inputs;
 use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
@@ -94,7 +94,11 @@ impl MoonshineModel {
     }
 
     fn init_session(path: &Path) -> Result<Session, MoonshineError> {
-        let providers = vec![CPUExecutionProvider::default().build()];
+        // OpenVINO with CPU fallback for Intel iGPU/dGPU acceleration
+        let providers = vec![
+            OpenVINOExecutionProvider::default().build(),
+            CPUExecutionProvider::default().build(),
+        ];
 
         let session = Session::builder()?
             .with_optimization_level(GraphOptimizationLevel::Level3)?
