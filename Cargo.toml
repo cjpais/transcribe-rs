@@ -12,7 +12,7 @@ default = []
 # Local engines
 whisper = ["dep:whisper-rs"]
 parakeet = ["dep:ort", "dep:ndarray", "dep:regex", "dep:once_cell"]
-moonshine = ["dep:ort", "dep:ndarray", "dep:tokenizers"]
+moonshine = ["dep:ort", "dep:ndarray"]
 whisperfile = ["dep:ureq"]
 
 # Remote engines
@@ -38,9 +38,6 @@ ndarray = { version = "0.16.1", optional = true }
 # Parakeet only
 regex = { version = "1.11.2", optional = true }
 once_cell = { version = "1.21.3", optional = true }
-
-# Moonshine only
-tokenizers = { version = "0.22", optional = true }
 
 # Whisperfile
 ureq = { version = "3", optional = true }
