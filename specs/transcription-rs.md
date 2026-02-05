@@ -73,6 +73,8 @@ graph LR
     class PlannedPush pushPlanned
 ```
 
+\* Links omitted for clarity — see similar items
+
 ### Batch Transcription (exists today)
 
 ```mermaid
@@ -100,7 +102,7 @@ graph TB
         WhisperCpp[whisper.cpp]
     end
 
-    Handy -->|"<b>(A)</b> List&lt;Transcript&gt;"| BatchEngine
+    Handy -->|"<b>(A)</b> returns List&lt;Transcript&gt;"| BatchEngine
 
     BatchEngine --> ParakeetEngine
     BatchEngine --> OpenAIEngine
@@ -158,8 +160,8 @@ graph TB
         end
     end
 
-    Handy -.->|"<b>(A)</b> Transcript"| StreamingSource
-    Handy -.->|"<b>(A)</b> Transcript"| StreamingEngine
+    Handy -.->|"<b>(A)</b> returns Transcript"| StreamingSource
+    Handy -.->|"<b>(A)</b> returns Transcript"| StreamingEngine
 
     StreamingSource -.-> StreamingEngine
 
@@ -228,9 +230,9 @@ graph TB
         end
     end
 
-    Handy -.->|"<b>(A)</b> Transcript"| StreamingSource
-    Handy -.->|"<b>(A)</b> Transcript"| StreamingEngine
-    Handy -->|"<b>(A)</b> List&lt;Transcript&gt;"| BatchEngine
+    Handy -.->|"<b>(A)</b> returns Transcript"| StreamingSource
+    Handy -.->|"<b>(A)</b> returns Transcript"| StreamingEngine
+    Handy -->|"<b>(A)</b> returns List&lt;Transcript&gt;"| BatchEngine
 
     StreamingSource -.-> StreamingEngine
 
