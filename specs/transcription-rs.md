@@ -10,9 +10,9 @@ Realtime streaming transcription APIs come in two styles—pull (you call, get r
 
 transcription-rs abstracts away the impedance mismatch: backends implement whichever style matches their API, apps consume whichever style they prefer.
 
-## Sub-Specs (Draft)
+## Sub-Specs
 
-### (A) Transcript Type
+### (A) Transcript Type — *required*
 
 **Problem:** The current `TranscriptionResult` type isn't suitable for streaming APIs and has gaps even for batch. Different return types force code duplication and make switching between batch and streaming harder than it should be.
 
@@ -20,7 +20,7 @@ transcription-rs abstracts away the impedance mismatch: backends implement which
 
 → Details: *transcription-rs-a-transcript-type.md (coming soon)*
 
-### (B) StreamingTranscriptionEngine (Low-Level)
+### (B) StreamingTranscriptionEngine (Low-Level) — *required*
 
 **Problem:** No streaming transcription support currently. Need a common interface so backends are swappable. Backend contributors need a clear, simple target to implement.
 
@@ -28,7 +28,7 @@ transcription-rs abstracts away the impedance mismatch: backends implement which
 
 → Details: *transcription-rs-b-streaming-engine.md (coming soon)*
 
-### (C) StreamingTranscriptionSource (High-Level Adapter)
+### (C) StreamingTranscriptionSource (High-Level Adapter) — *optional*
 
 **Problem:** The pull-based `StreamingTranscriptionEngine` (B) requires managing two loops: audio in and results out. App devs would need to manage threading themselves — easy to mess up. Most UI frameworks (Svelte, React, Tauri) work better with event/callback-based APIs. Without this, every app duplicates the same threading/callback logic.
 
@@ -36,24 +36,13 @@ transcription-rs abstracts away the impedance mismatch: backends implement which
 
 → Details: *transcription-rs-c-high-level-adapter.md (coming soon)*
 
----
+### (D) PushAdapter — *optional*
 
-## Sub-Specs (Old)
+**Problem:** Most cloud streaming APIs (Deepgram, OpenAI, ElevenLabs, etc.) are push-based (WebSocket callbacks). They don't fit the pull-based `StreamingTranscriptionEngine` interface (B). Without an adapter, contributors would have to implement complex push→pull conversion for each backend. If push backends only exposed a push interface, power users couldn't use them in pull style.
 
-Each spec follows the format: one-sentence insight → simple code example → details. Letters correspond to diagram labels below.
+**Solution:** `PushSource` — simpler 4-method interface that's basically just a thin wrapper over the 3rd-party API (start, send audio, finish, stop). `PushAdapter` wraps any `PushSource` and implements `StreamingTranscriptionEngine`. Contributors just wrap the natural API; adapter handles the tricky push→pull conversion once. All push backends work both ways: via (C) for most apps, or via (B) for power users.
 
-| | Spec | Insight | Audience |
-|-|------|---------|----------|
-| **(A)** | Transcript Type | One unified result shape for partial, final, and batch | Everyone |
-| **(B)** | Streaming Engine | Pull-based core interface — the common target for all backends | Backend implementors, power users |
-| **(C)** | High-Level Adapter | Push audio, receive callbacks — library handles threading | App developers |
-| **(D)** | Push Adapter | 4 methods instead of 7 for WebSocket backends | Contributors adding cloud APIs |
-
-**Why expose the low-level API (B)?** It's the common target for backend implementors, so all backends benefit from the high-level adapter (C). Minimal extra work to expose, and some users need the control.
-
-**Why the high-level adapter (C)?** Without it, every app duplicates threading logic — easy to mess up. The library owns the decode thread; apps just push audio and receive callbacks.
-
-**Why the push adapter (D)?** Push-based backends (Deepgram, OpenAI, ElevenLabs) don't fit the pull interface. `PushSource` is simpler to implement (4 methods vs 7), and `PushAdapter` converts it to the common interface.
+→ Details: *transcription-rs-d-push-adapter.md (coming soon)*
 
 See also: [Appendix](transcription-rs-appendix.md) (API survey, migration guide, implementation details)
 
