@@ -4,15 +4,22 @@
 
 **transcription-rs** unifies transcription APIs behind a common interface.
 
-Realtime streaming transcription APIs come in two styles—pull (you call, get result) and push (results arrive via callbacks). App developers want both styles too:
-- Most prefer push for simplicity (just receive callbacks)
-- Some need pull for control (custom buffering, timing, multi-stream)
+**Why:** transcribe-rs handles batch transcription well, but:
+- No streaming support (partial results as you speak)
+- Streaming is more complex than batch — async operations, interim results that get revised, endpoint detection
+- Current `TranscriptionResult` type has gaps
+- Streaming APIs vary widely: some push results via callbacks, others require polling; fields and semantics differ
 
-transcription-rs abstracts away the impedance mismatch: backends implement whichever style matches their API, apps consume whichever style they prefer.
+**What's new:**
+- Streaming transcription support via `StreamingTranscriptionEngine`
+- One `Transcript` type for all results (batch, streaming partial, streaming final)
+- Swappable backends — switch providers without changing app code
+
+**Optional adapters** handle the push/pull impedance mismatch: most cloud APIs are push-based (callbacks), most local models are pull-based (you call, get result). Adapters let implementors write minimal wrappers matching their API's native style; apps can consume either push or pull.
 
 ## Sub-Specs
 
-### (A) Transcript Type — *required*
+### (A) Transcript Type — *highly recommended*
 
 **Problem:** The current `TranscriptionResult` type isn't suitable for streaming APIs and has gaps even for batch. Different return types force code duplication and make switching between batch and streaming harder than it should be.
 
@@ -54,14 +61,14 @@ The following diagrams are labeled with sub-spec letters **(A)**–**(D)** to sh
 
 ```mermaid
 graph LR
-    ExistingPull["Existing [OldName]"] -- solid --> PlannedPull[Planned Pull]
-    ExistingPull -. dashed .-> PlannedPush[Planned Push]
-    Omitted[Omitted*]
+    Existing["[Existing]"] -- solid --> PlannedPull[Planned Pull]
+    Existing -. dashed .-> PlannedPush[Planned Push]
+    Renamed["NewName [OldName]"]
 
     classDef pullExisting fill:#cce5ff
     classDef pullPlanned fill:#cce5ff,stroke-dasharray: 5 5
     classDef pushPlanned fill:#e1f5e1,stroke-dasharray: 5 5
-    class ExistingPull pullExisting
+    class Existing,Renamed pullExisting
     class PlannedPull pullPlanned
     class PlannedPush pushPlanned
 ```
