@@ -34,10 +34,7 @@ graph TB
         end
 
         subgraph Backends ["Backend Implementations — Contributors"]
-            SherpaEngine["SherpaEngine struct"]
             ParakeetEngine["[ParakeetEngine] struct"]
-            ElevenLabsSource["ElevenLabsSource struct"]
-            ElevenLabsEngine["ElevenLabsEngine struct"]
             OpenAISource["OpenAISource struct"]
             OpenAIEngine["[OpenAIEngine] struct"]
             WhisperEngine["[WhisperEngine] struct"]
@@ -45,15 +42,17 @@ graph TB
     end
 
     subgraph External ["3rd Party APIs — External"]
-        subgraph PullStreaming ["Pull Streaming"]
-            Sherpa[sherpa-onnx]
+        subgraph PullStreaming ["Pull Streaming (3)"]
             NeMo[NeMo]
+            Vosk[Vosk*]
+            Sherpa[sherpa-onnx*]
         end
-        subgraph PushStreaming ["Push Streaming"]
-            ElevenLabsAPI[ElevenLabs]
+        subgraph PushStreaming ["Push Streaming (9)"]
+            Deepgram[Deepgram*]
             OpenAI[OpenAI]
+            ElevenLabs[ElevenLabs*]
         end
-        subgraph NoStreaming ["No Streaming"]
+        subgraph BatchOnly ["Batch Only (1)"]
             WhisperCpp[whisper.cpp]
         end
     end
@@ -64,23 +63,16 @@ graph TB
 
     StreamingSource -.-> StreamingEngine
 
-    StreamingEngine -.-> SherpaEngine
     StreamingEngine -.-> ParakeetEngine
     StreamingEngine -.-> PushAdapter
     
     PushAdapter -.-> PushSource
-    PushSource -.-> ElevenLabsSource
     PushSource -.-> OpenAISource
     
-    BatchEngine -.-> SherpaEngine
-    BatchEngine -.-> ElevenLabsEngine
     BatchEngine --> ParakeetEngine
     BatchEngine --> OpenAIEngine
     BatchEngine --> WhisperEngine
 
-    SherpaEngine -.-> Sherpa
-    ElevenLabsSource -.-> ElevenLabsAPI
-    ElevenLabsEngine -.-> ElevenLabsAPI
     ParakeetEngine --> NeMo
     OpenAISource -.-> OpenAI
     OpenAIEngine --> OpenAI
@@ -90,8 +82,8 @@ graph TB
     classDef pullPlanned fill:#cce5ff,stroke-dasharray: 5 5
     classDef pushExisting fill:#e1f5e1
     classDef pullExisting fill:#cce5ff
-    class StreamingSource,PushSource,ElevenLabsSource,OpenAISource pushPlanned
-    class StreamingEngine,PushAdapter,SherpaEngine,ElevenLabsEngine pullPlanned
+    class StreamingSource,PushSource,OpenAISource pushPlanned
+    class StreamingEngine,PushAdapter pullPlanned
     class ParakeetEngine,OpenAIEngine,WhisperEngine,BatchEngine pullExisting
 ```
 
@@ -99,6 +91,28 @@ graph TB
 - **Solid line/border** = exists today | **Dashed** = planned
 - **Blue fill** = pull (`*Engine` — you call it) | **Green fill** = push (`*Source` — callbacks)
 - **[Brackets]** in name = existing implementation
+- **\*** = backend implementation omitted from diagram for clarity
+
+<details>
+<summary>Compatible 3rd-party APIs (diagram shows representative subset)</summary>
+
+| API | Streaming | Transport | Deployment |
+|-----|-----------|-----------|------------|
+| **sherpa-onnx** | pull | local | local |
+| **NeMo** | pull | local | local |
+| **Vosk** | pull | local | local |
+| **Deepgram** | push | WebSocket | cloud |
+| **OpenAI Realtime** | push | WebSocket | cloud |
+| **ElevenLabs** | push | WebSocket | cloud |
+| **AssemblyAI** | push | WebSocket | cloud |
+| **AWS Transcribe** | push | WebSocket | cloud |
+| **Azure Speech** | push | SDK/WebSocket | cloud |
+| **Google Cloud Speech** | push | gRPC | cloud |
+| **Rev.ai** | push | WebSocket | cloud |
+| **Voxtral Realtime** | push | WebSocket | cloud/local |
+| **whisper.cpp** | batch only | local | local |
+
+</details>
 
 **This spec defines:**
 - `StreamingTranscriptionEngine` trait — pull-based core interface
