@@ -10,7 +10,35 @@ Realtime streaming transcription APIs come in two styles—pull (you call, get r
 
 transcription-rs abstracts away the impedance mismatch: backends implement whichever style matches their API, apps consume whichever style they prefer.
 
-## Sub-Specs
+## Sub-Specs (Draft)
+
+### (A) Transcript Type
+
+**Problem:** The current `TranscriptionResult` type isn't suitable for streaming APIs and has gaps even for batch. Different return types force code duplication and make switching between batch and streaming harder than it should be.
+
+**Solution:** One comprehensive `Transcript` type for all results (batch, streaming partial, streaming final). The `raw` field leaves the door open for any gaps in this spec and future 3rd-party API innovations.
+
+→ Details: *transcription-rs-a-transcript-type.md (coming soon)*
+
+### (B) StreamingTranscriptionEngine (Low-Level)
+
+**Problem:** No streaming transcription support currently. Need a common interface so backends are swappable. Backend contributors need a clear, simple target to implement.
+
+**Solution:** `StreamingTranscriptionEngine` — a pull-based interface. Pull is the better internal abstraction: you can build push on top of pull (C does this), but building pull on top of push is messier. Pull is the simplest wrapper for local models (sherpa-onnx, NeMo, Vosk) — high priority for local/private transcription. Pull gives control — caller decides timing, backpressure, when to drain (power users need this).
+
+→ Details: *transcription-rs-b-streaming-engine.md (coming soon)*
+
+### (C) StreamingTranscriptionSource (High-Level Adapter)
+
+**Problem:** The pull-based `StreamingTranscriptionEngine` (B) requires managing two loops: audio in and results out. App devs would need to manage threading themselves — easy to mess up. Most UI frameworks (Svelte, React, Tauri) work better with event/callback-based APIs. Without this, every app duplicates the same threading/callback logic.
+
+**Solution:** `StreamingTranscriptionSource` — push audio, receive callbacks. Library owns the threads (audio processing + result delivery); app just pushes audio and handles callbacks. Built on top of (B), so all backends work automatically. Optional: devs who need more control can use (B) directly.
+
+→ Details: *transcription-rs-c-high-level-adapter.md (coming soon)*
+
+---
+
+## Sub-Specs (Old)
 
 Each spec follows the format: one-sentence insight → simple code example → details. Letters correspond to diagram labels below.
 
@@ -30,6 +58,8 @@ Each spec follows the format: one-sentence insight → simple code example → d
 See also: [Appendix](transcription-rs-appendix.md) (API survey, migration guide, implementation details)
 
 ## Architecture Diagrams
+
+The following diagrams are labeled with sub-spec letters **(A)**–**(D)** to show how the specs relate to each other.
 
 ### Legend
 
