@@ -37,13 +37,13 @@ graph TB
 
     subgraph Library ["transcription-rs Crate"]
         subgraph Core ["Core"]
-            BatchEngine["BatchTranscriptionEngine [TranscriptionEngine] trait"]
+            BatchEngine["BatchTranscriptionEngine [TranscriptionEngine] (interface)"]
         end
 
         subgraph Backends ["Backend Implementations — Contributors"]
-            ParakeetEngine["[ParakeetEngine] struct"]
-            OpenAIEngine["[OpenAIEngine] struct"]
-            WhisperEngine["[WhisperEngine] struct"]
+            ParakeetEngine["[ParakeetEngine] (type)"]
+            OpenAIEngine["[OpenAIEngine] (type)"]
+            WhisperEngine["[WhisperEngine] (type)"]
         end
     end
 
@@ -53,7 +53,7 @@ graph TB
         WhisperCpp[whisper.cpp]
     end
 
-    Handy -->|"Vec&lt;Transcript&gt;"| BatchEngine
+    Handy -->|"List&lt;Transcript&gt;"| BatchEngine
 
     BatchEngine --> ParakeetEngine
     BatchEngine --> OpenAIEngine
@@ -79,22 +79,22 @@ graph TB
     subgraph Library ["transcription-rs Crate"]
         subgraph Core ["Core"]
             subgraph HighLevel ["High-Level Adapter"]
-                StreamingSource["StreamingTranscriptionSource struct"]
+                StreamingSource["StreamingTranscriptionSource (type)"]
             end
 
-            subgraph LowLevel ["Low-Level Trait"]
-                StreamingEngine["StreamingTranscriptionEngine trait"]
+            subgraph LowLevel ["Low-Level Interface"]
+                StreamingEngine["StreamingTranscriptionEngine (interface)"]
             end
 
             subgraph PushHelper ["Push Adapter"]
-                PushAdapter[PushAdapter struct]
-                PushSource[PushSource trait]
+                PushAdapter["PushAdapter (type)"]
+                PushSource["PushSource (interface)"]
             end
         end
 
         subgraph Backends ["Backend Implementations — Contributors"]
-            ParakeetEngine["ParakeetEngine struct"]
-            OpenAISource["OpenAISource struct"]
+            ParakeetEngine["ParakeetEngine (type)"]
+            OpenAISource["OpenAISource (type)"]
         end
     end
 
@@ -143,25 +143,25 @@ graph TB
     subgraph Library ["transcription-rs Crate"]
         subgraph Core ["Core"]
             subgraph HighLevel ["High-Level Adapter"]
-                StreamingSource["StreamingTranscriptionSource struct"]
+                StreamingSource["StreamingTranscriptionSource (type)"]
             end
 
-            subgraph LowLevel ["Low-Level Traits"]
-                StreamingEngine["StreamingTranscriptionEngine trait"]
-                BatchEngine["BatchTranscriptionEngine [TranscriptionEngine] trait"]
+            subgraph LowLevel ["Low-Level Interfaces"]
+                StreamingEngine["StreamingTranscriptionEngine (interface)"]
+                BatchEngine["BatchTranscriptionEngine [TranscriptionEngine] (interface)"]
             end
 
             subgraph PushHelper ["Push Adapter"]
-                PushAdapter[PushAdapter struct]
-                PushSource[PushSource trait]
+                PushAdapter["PushAdapter (type)"]
+                PushSource["PushSource (interface)"]
             end
         end
 
         subgraph Backends ["Backend Implementations — Contributors"]
-            ParakeetEngine["[ParakeetEngine] struct"]
-            OpenAISource["OpenAISource struct"]
-            OpenAIEngine["[OpenAIEngine] struct"]
-            WhisperEngine["[WhisperEngine] struct"]
+            ParakeetEngine["[ParakeetEngine] (type)"]
+            OpenAISource["OpenAISource (type)"]
+            OpenAIEngine["[OpenAIEngine] (type)"]
+            WhisperEngine["[WhisperEngine] (type)"]
         end
     end
 
@@ -183,7 +183,7 @@ graph TB
 
     Handy -.->|Transcript| StreamingSource
     Handy -.->|Transcript| StreamingEngine
-    Handy -->|"Vec&lt;Transcript&gt;"| BatchEngine
+    Handy -->|"List&lt;Transcript&gt;"| BatchEngine
 
     StreamingSource -.-> StreamingEngine
 
@@ -233,10 +233,10 @@ graph TB
 </details>
 
 **This spec defines:**
-- `StreamingTranscriptionEngine` trait — pull-based core interface
+- `StreamingTranscriptionEngine` — pull-based core interface
 - `StreamingTranscriptionSource` — high-level callback API for app devs
-- `PushSource` trait + `PushAdapter` — adapter for push-based backends (ElevenLabs, OpenAI), solves impedance mismatch with the pull-based core
-- `Transcript` return type — common for streaming and batch, richer than current
+- `PushSource` + `PushAdapter` — adapter for push-based backends (ElevenLabs, OpenAI), solves impedance mismatch with the pull-based core
+- `Transcript` — return type common for streaming and batch, richer than current
 - Migration path from legacy `transcribe-rs`
 
 <details>
@@ -265,12 +265,12 @@ graph TB
 
 | Legacy (transcribe-rs) | New (transcription-rs) | Notes |
 |------------------------|------------------------|-------|
-| `TranscriptionEngine` trait | `BatchTranscriptionEngine` trait | Added "Batch" prefix for clarity |
+| `TranscriptionEngine` | `BatchTranscriptionEngine` | Added "Batch" prefix for clarity |
 | `TranscriptionResult` | `Transcript` | Richer fields |
-| — | `StreamingTranscriptionSource` struct | New: high-level streaming API (callback-based) |
-| — | `StreamingTranscriptionEngine` trait | New: low-level streaming interface (pull-based) |
-| — | `PushSource` trait | New: for push-based backends |
-| — | `PushAdapter` struct | New: wraps `PushSource` as `StreamingTranscriptionEngine` |
+| — | `StreamingTranscriptionSource` | New: high-level streaming API (callback-based) |
+| — | `StreamingTranscriptionEngine` | New: low-level streaming interface (pull-based) |
+| — | `PushSource` | New: for push-based backends |
+| — | `PushAdapter` | New: wraps `PushSource` as `StreamingTranscriptionEngine` |
 
 **Migration:**
 
@@ -286,15 +286,14 @@ transcription-rs = "0.1"
 
 For code that used `TranscriptionResult.text` (joined text), use the included helper:
 
-```rust
-// Before (legacy)
-let result = engine.transcribe(&audio)?;
-println!("{}", result.text);  // TranscriptionResult.text was pre-joined
+```
+-- Before (legacy)
+result = engine.transcribe(audio)
+print(result.text)  -- TranscriptionResult.text was pre-joined
 
-// After (new)
-use transcription_rs::joined_text;
-let transcripts = engine.transcribe(&audio)?;
-println!("{}", joined_text(&transcripts));  // explicitly join segments
+-- After (new)
+transcripts = engine.transcribe(audio)
+print(joined_text(transcripts))  -- explicitly join segments
 ```
 
 </details>
@@ -309,9 +308,11 @@ Pull is the common internal interface. transcription-rs adapts both directions:
 | **Contributor implements** | `StreamingTranscriptionEngine` | `PushSource` (simpler) |
 | **App dev uses** | `StreamingTranscriptionEngine` (control) | `StreamingTranscriptionSource` (simple) |
 
-**Why this saves code:** Any backend works with either app API style. Without adapters, each backend would implement both styles. With adapters, each backend implements one trait, transcription-rs handles the rest.
+**Why this saves code:** Any backend works with either app API style. Without adapters, each backend would implement both styles. With adapters, each backend implements one interface, transcription-rs handles the rest.
 
 ## Data Types
+
+> *Pseudocode shows data shapes. See implementation for language-specific details (ownership, error handling, etc.).*
 
 Both API layers return the same `Transcript` type with optional word-level detail. Supporting types include:
 - `Word` for per-word timing
@@ -319,73 +320,67 @@ Both API layers return the same `Transcript` type with optional word-level detai
 - `Alternative` for n-best hypotheses.
 
 <details>
-<summary>Annotated struct definitions — <code>Transcript</code>, <code>Word</code>, <code>Speaker</code>, <code>Alternative</code></summary>
+<summary>Annotated type definitions — <code>Transcript</code>, <code>Word</code>, <code>Speaker</code>, <code>Alternative</code></summary>
 
-```rust
-pub struct Transcript {
-    pub text: String,
+```
+STRUCT Transcript
+    text: String
 
-    // Result-level finality
-    pub is_final: bool,               // this result won't be revised
-    pub is_endpoint: bool,            // natural speech boundary detected (silence/pause)
-    pub segment_id: u32,              // same ID for all revisions of one utterance
+    -- Result-level finality
+    is_final: Bool               -- this result won't be revised
+    is_endpoint: Bool            -- natural speech boundary detected (silence/pause)
+    segment_id: Int              -- same ID for all revisions of one utterance
 
-    // Timing (seconds from stream/file start)
-    pub start: Option<f32>,
-    pub end: Option<f32>,
+    -- Timing (seconds from stream/file start)
+    start: Float?
+    end: Float?
 
-    // Confidence
-    pub confidence: Option<f32>,      // 0.0-1.0, overall confidence score
+    -- Confidence
+    confidence: Float?           -- 0.0-1.0, overall confidence score
 
-    // Language
-    pub language: Option<String>,     // detected/specified language code (e.g., "en", "en-US")
-    pub language_confidence: Option<f32>, // 0.0-1.0, confidence in language detection
+    -- Language
+    language: String?            -- detected/specified language code (e.g., "en", "en-US")
+    language_confidence: Float?  -- 0.0-1.0, confidence in language detection
 
-    // Speaker diarization
-    pub speaker: Option<Speaker>,     // speaker identifier for this segment
+    -- Speaker diarization
+    speaker: Speaker?            -- speaker identifier for this segment
 
-    // Multi-channel audio
-    pub channel: Option<u32>,         // audio channel index (0-based)
+    -- Multi-channel audio
+    channel: Int?                -- audio channel index (0-based)
 
-    // Word-level detail
-    pub words: Option<Vec<Word>>,
+    -- Word-level detail
+    words: List<Word>?
 
-    // N-best alternatives
-    pub alternatives: Option<Vec<Alternative>>, // alternative transcriptions for same audio
+    -- N-best alternatives
+    alternatives: List<Alternative>?  -- alternative transcriptions for same audio
 
-    // Raw backend response for debug/niche fields (requires `include_raw: true`)
-    pub raw: Option<serde_json::Value>,
-}
+    -- Raw backend response for debug/niche fields (requires include_raw: true)
+    raw: JSON?
 
-/// Speaker identifier - backends use different schemes
-#[derive(Debug, Clone, PartialEq)]
-pub enum Speaker {
-    Id(u32),           // numeric ID (0, 1, 2...) - Deepgram, Azure, Rev.ai
-    Label(String),     // string label ("A", "B", "speaker_1") - AssemblyAI, Google
-}
+    -- Check if this result supersedes a previous partial (same segment, more final)
+    METHOD supersedes(other: Transcript) -> Bool
 
-/// Alternative transcription hypothesis (n-best)
-pub struct Alternative {
-    pub text: String,
-    pub confidence: Option<f32>,
-    pub words: Option<Vec<Word>>,
-}
 
-pub struct Word {
-    pub text: String,                 // the word text
-    pub punctuated: Option<String>,   // with punctuation/caps (e.g., "yeah" → "Yeah.")
-    pub start: f32,                   // start time (seconds)
-    pub end: f32,                     // end time (seconds)
-    pub confidence: Option<f32>,      // 0.0-1.0
-    pub speaker: Option<Speaker>,     // speaker for this word (may differ from segment)
-}
+-- Speaker identifier - backends use different schemes
+ENUM Speaker
+    Id(Int)              -- numeric ID (0, 1, 2...) - Deepgram, Azure, Rev.ai
+    Label(String)        -- string label ("A", "B", "speaker_1") - AssemblyAI, Google
 
-impl Transcript {
-    /// Check if this result supersedes a previous partial (same segment, more final)
-    pub fn supersedes(&self, other: &Transcript) -> bool {
-        self.segment_id == other.segment_id && (self.is_final || !other.is_final)
-    }
-}
+
+-- Alternative transcription hypothesis (n-best)
+STRUCT Alternative
+    text: String
+    confidence: Float?
+    words: List<Word>?
+
+
+STRUCT Word
+    text: String                 -- the word text
+    punctuated: String?          -- with punctuation/caps (e.g., "yeah" -> "Yeah.")
+    start: Float                 -- start time (seconds)
+    end: Float                   -- end time (seconds)
+    confidence: Float?           -- 0.0-1.0
+    speaker: Speaker?            -- speaker for this word (may differ from segment)
 ```
 
 </details>
@@ -410,10 +405,12 @@ impl Transcript {
 
 ## API Layers
 
+> *Pseudocode shows data shapes. See implementation for language-specific details (ownership, error handling, etc.).*
+
 Choose one:
 
 - **[High Level](#high-level-callback-based-streamingtranscriptionsource):** Push audio, receive callbacks. Library manages threading.
-- **[Low Level](#low-level-streamingtranscriptionengine-trait):** Pull-based decode loop. Consumer has full control.
+- **[Low Level](#low-level-streamingtranscriptionengine-interface):** Pull-based decode loop. Consumer has full control.
 
 | Use Case                      | Layer | Why                             |
 | ----------------------------- | ----- | ------------------------------- |
@@ -426,40 +423,32 @@ Choose one:
 
 Library owns threading. Consumer just pushes audio and receives callbacks.
 
-```rust
-impl StreamingTranscriptionSource {
-    pub fn new(engine: impl StreamingTranscriptionEngine + Send + 'static) -> Self;
-
-    pub fn start_listening<F>(&self, callback: F) -> Result<(), Error>
-    where
-        F: Fn(Result<Transcript, Error>) -> Result<(), Error> + Send + 'static;
-
-    pub fn push_audio(&self, samples: &[f32]);
-
-    pub fn stop_listening(&self) -> Result<(), Error>;
-}
+```
+STRUCT StreamingTranscriptionSource
+    METHOD new(engine: StreamingTranscriptionEngine) -> StreamingTranscriptionSource
+    METHOD start_listening(callback: (Result) -> void)
+    METHOD push_audio(samples: List<Float>)
+    METHOD stop_listening()
 ```
 
-#### Usage (Tauri)
+#### Usage Example
 
-```rust
-let engine = SherpaEngine::new(config)?;
-let source = transcription_rs::StreamingTranscriptionSource::new(engine);
+```
+engine = SherpaEngine.new(config)
+source = StreamingTranscriptionSource.new(engine)
 
-source.start_listening(|result| {
-    match result {
-        Ok(r) if r.is_final => app.emit("final", &r)?,
-        Ok(r) => app.emit("partial", &r.text)?,
-        Err(e) => app.emit("error", e.to_string())?,
-    }
-    Ok(())  // return Err to stop listening
-})?;
+source.start_listening(result =>
+    MATCH result
+        Ok(t) IF t.is_final => app.emit("final", t)
+        Ok(t)               => app.emit("partial", t.text)
+        Err(e)              => app.emit("error", e)
+)
 
-// Called from Tauri's cpal audio callback
-source.push_audio(&samples);
+-- Called from audio callback
+source.push_audio(samples)
 
-// When done
-source.stop_listening()?;
+-- When done
+source.stop_listening()
 ```
 
 <details>
@@ -467,65 +456,45 @@ source.stop_listening()?;
 
 High level is built on low level:
 
-```rust
-impl StreamingTranscriptionSource {
-    pub fn start_listening<F>(&self, callback: F) -> Result<(), Error>
-    where
-        F: Fn(Result<Transcript, Error>) -> Result<(), Error> + Send + 'static
-    {
-        let (audio_tx, audio_rx) = channel();
-        let (result_tx, result_rx) = channel();
+```
+METHOD start_listening(callback)
+    audio_channel = new Channel
+    result_channel = new Channel
+    engine = self.create_engine()
 
-        // Decode thread - uses low-level API
-        let mut engine = self.create_engine()?;
-        thread::spawn(move || {
-            loop {
-                let samples: Vec<f32> = match audio_rx.recv() {
-                    Ok(s) => s,
-                    Err(_) => {
-                        // Channel closed - flush remaining audio
-                        engine.input_finished();
-                        for result in drain_results(&mut engine) {
-                            let _ = result_tx.send(Ok(result));
-                        }
-                        break;
-                    }
-                };
+    -- Decode thread - uses low-level API
+    SPAWN THREAD
+        LOOP
+            samples = audio_channel.receive()
+            IF channel_closed THEN
+                -- Flush remaining audio
+                engine.input_finished()
+                FOR result IN drain_results(engine)
+                    result_channel.send(Ok(result))
+                BREAK
 
-                engine.accept_waveform(&samples);
+            engine.accept_waveform(samples)
 
-                // Drain all results, send each to callback thread
-                while engine.is_ready() {
-                    if let Err(e) = engine.decode() {
-                        let _ = result_tx.send(Err(e));
-                        break;
-                    }
-                    if let Some(result) = engine.get_result() {
-                        if result_tx.send(Ok(result)).is_err() {
-                            break;
-                        }
-                    }
-                }
-                // Reset after segment boundary (not inside drain loop)
-                if engine.is_endpoint() {
-                    engine.reset();
-                }
-            }
-        });
+            -- Drain all results, send each to callback thread
+            WHILE engine.is_ready()
+                IF engine.decode() FAILS THEN
+                    result_channel.send(Err(error))
+                    BREAK
+                result = engine.get_result()
+                IF result EXISTS THEN
+                    result_channel.send(Ok(result))
 
-        // Callback thread
-        thread::spawn(move || {
-            for result in result_rx {
-                if callback(result).is_err() {
-                    break;
-                }
-            }
-        });
+            -- Reset after segment boundary (not inside drain loop)
+            IF engine.is_endpoint() THEN
+                engine.reset()
 
-        *self.audio_tx.lock().unwrap() = Some(audio_tx);  // audio_tx: Mutex<Option<Sender>>
-        Ok(())
-    }
-}
+    -- Callback thread
+    SPAWN THREAD
+        FOR result IN result_channel
+            IF callback(result) FAILS THEN
+                BREAK
+
+    self.audio_channel = audio_channel
 ```
 
 **Thread Model:**
@@ -534,9 +503,9 @@ impl StreamingTranscriptionSource {
 CONSUMER THREAD                 transcription-rs INTERNAL THREADS
 
 ┌──────────────────┐           ┌──────────────────┐    ┌──────────────────┐
-│ cpal callback    │           │ Decode Thread    │    │ Callback Thread  │
+│ audio callback   │           │ Decode Thread    │    │ Callback Thread  │
 │                  │           │                  │    │                  │
-│ engine           │   chan    │ accept_waveform  │chan│ loop {           │
+│ source           │   chan    │ accept_waveform  │chan│ loop {           │
 │  .push_audio() ─────────────▶│ drain_results() ─────▶│   callback(r)   │
 │                  │           │ for each result  │    │ }                │
 └──────────────────┘           └──────────────────┘    └──────────────────┘
@@ -547,24 +516,19 @@ CONSUMER THREAD                 transcription-rs INTERNAL THREADS
 
 </details>
 
-### Low Level: StreamingTranscriptionEngine Trait
+### Low Level: StreamingTranscriptionEngine Interface
 
 Mirrors sherpa-onnx's actual API. Full control, consumer manages the decode loop.
 
-```rust
-pub trait StreamingTranscriptionEngine {
-    fn accept_waveform(&mut self, samples: &[f32]);
-    fn input_finished(&mut self);  // signal end of stream, flush remaining frames
-    
-    /// Check if engine has enough buffered audio for one decode step.
-    /// Default returns true (always attempt decode).
-    fn is_ready(&self) -> bool { true }
-    
-    fn decode(&mut self) -> Result<(), Error>;
-    fn get_result(&self) -> Option<Transcript>;
-    fn is_endpoint(&self) -> bool;
-    fn reset(&mut self);
-}
+```
+INTERFACE StreamingTranscriptionEngine
+    accept_waveform(samples: List<Float>)
+    input_finished()                       -- signal end of stream, flush remaining frames
+    is_ready() -> Bool                     -- has enough buffered audio? (default: true)
+    decode() -> Result                     -- run one decode step
+    get_result() -> Transcript?            -- get current result (None if not ready)
+    is_endpoint() -> Bool                  -- speaker paused/stopped?
+    reset()                                -- clear state for next segment
 ```
 
 <details>
@@ -585,35 +549,30 @@ The `is_ready()` check is inherently model-specific. Backends like `SherpaEngine
 
 #### Usage
 
-```rust
-let mut engine = SherpaEngine::new(config)?;
+```
+engine = SherpaEngine.new(config)
 
-loop {
-    let samples = mic.read_chunk();
-    engine.accept_waveform(&samples);
+LOOP
+    samples = mic.read_chunk()
+    engine.accept_waveform(samples)
 
-    for result in drain_results(&mut engine) {
-        if result.is_final {
-            println!("Final: {}", result.text);
-        } else {
-            print!("\rPartial: {}", result.text);
-        }
-    }
-    // Reset after segment boundary (not inside drain loop)
-    if engine.is_endpoint() {
-        engine.reset();
-    }
+    FOR result IN drain_results(engine)
+        IF result.is_final THEN
+            print("Final: " + result.text)
+        ELSE
+            print("Partial: " + result.text)
 
-    if user_stopped() {
-        break;
-    }
-}
+    -- Reset after segment boundary (not inside drain loop)
+    IF engine.is_endpoint() THEN
+        engine.reset()
 
-// Signal end of stream, flush remaining audio
-engine.input_finished();
-for result in drain_results(&mut engine) {
-    println!("{}", result.text);
-}
+    IF user_stopped() THEN
+        BREAK
+
+-- Signal end of stream, flush remaining audio
+engine.input_finished()
+FOR result IN drain_results(engine)
+    print(result.text)
 ```
 
 <details>
@@ -621,49 +580,45 @@ for result in drain_results(&mut engine) {
 
 Example pattern (not included in crate—customize error handling as needed):
 
-```rust
-/// Drain all pending results from engine (runs decode loop internally).
-/// Stops on error; use decode() directly for error handling.
-fn drain_results(engine: &mut impl StreamingTranscriptionEngine) -> Vec<Transcript> {
-    let mut results = vec![];
-    while engine.is_ready() {
-        if engine.decode().is_err() {
-            break;
-        }
-        if let Some(result) = engine.get_result() {
-            results.push(result);
-        }
-    }
-    results
-}
+```
+-- Drain all pending results from engine (runs decode loop internally).
+-- Stops on error; use decode() directly for error handling.
+FUNCTION drain_results(engine: StreamingTranscriptionEngine) -> List<Transcript>
+    results = []
+    WHILE engine.is_ready()
+        IF engine.decode() FAILS THEN
+            BREAK
+        result = engine.get_result()
+        IF result EXISTS THEN
+            results.append(result)
+    RETURN results
 ```
 
 </details>
 
 ### Push-Based Backends: PushSource + PushAdapter
 
-For push-based backends (like ElevenLabs WebSocket, OpenAI), contributors implement the simpler `PushSource` trait instead of `StreamingTranscriptionEngine`:
+For push-based backends (like ElevenLabs WebSocket, OpenAI), contributors implement the simpler `PushSource` interface instead of `StreamingTranscriptionEngine`:
 
-```rust
-pub trait PushSource {
-    fn start(&mut self, emit: impl Fn(Result<Transcript, Error>) + Send) -> Result<(), Error>;
-    fn send_audio(&mut self, samples: &[f32]) -> Result<(), Error>;
-    fn finish(&mut self) -> Result<(), Error>;
-    fn stop(&mut self);
-}
+```
+INTERFACE PushSource
+    start(emit: (Result) -> void)      -- begin receiving, call emit() when results arrive
+    send_audio(samples: List<Float>)   -- send audio chunk
+    finish()                           -- signal end of stream
+    stop()                             -- stop receiving
 ```
 
-The library provides `PushAdapter<P: PushSource>` which wraps any `PushSource` and implements `StreamingTranscriptionEngine`:
+The library provides `PushAdapter` which wraps any `PushSource` and implements `StreamingTranscriptionEngine`:
 
-```rust
-// Contributor implements PushSource
-struct ElevenLabsSource { /* WebSocket connection, etc. */ }
-impl PushSource for ElevenLabsSource { /* ... */ }
+```
+-- Contributor implements PushSource
+STRUCT ElevenLabsSource IMPLEMENTS PushSource
+    -- WebSocket connection, etc.
 
-// Library wraps it as StreamingTranscriptionEngine
-let source = ElevenLabsSource::new(api_key, options)?;
-let engine = PushAdapter::new(source);
-let source = StreamingTranscriptionSource::new(engine);
+-- Library wraps it as StreamingTranscriptionEngine
+source = ElevenLabsSource.new(api_key, options)
+engine = PushAdapter.new(source)
+streaming = StreamingTranscriptionSource.new(engine)
 ```
 
 This allows push-based backends to work with `StreamingTranscriptionSource` without manually implementing the pull-based `StreamingTranscriptionEngine` interface.
@@ -680,13 +635,13 @@ This allows push-based backends to work with `StreamingTranscriptionSource` with
 <details>
 <summary>How does a consumer switch between online, sentence, or simulated streaming?</summary>
 
-By choosing a backend. The streaming strategy is an implementation detail—all backends expose the same `StreamingTranscriptionEngine` trait, so usage code is identical:
+By choosing a backend. The streaming strategy is an implementation detail—all backends expose the same `StreamingTranscriptionEngine` interface, so usage code is identical:
 
-```rust
-let engine = SherpaEngine::new(config)?;  // backend choice determines strategy
-let source = StreamingTranscriptionSource::new(engine);
-source.start_listening(callback)?;
-source.push_audio(&samples);
+```
+engine = SherpaEngine.new(config)  -- backend choice determines strategy
+source = StreamingTranscriptionSource.new(engine)
+source.start_listening(callback)
+source.push_audio(samples)
 ```
 
 | Strategy                                          | Implementation                                                                  |
@@ -703,7 +658,7 @@ source.push_audio(&samples);
 | **Sentence-based** | Core component — VAD defines segment boundaries |
 | **Simulated** | Optional — may use VAD to trigger final commit |
 
-The key insight: `accept_waveform(&[f32])` as the universal input allows all strategies to be implemented as layers. Native streaming models implement `StreamingTranscriptionEngine` directly; wrappers add VAD/windowing logic on top of batch models while exposing the same trait. This keeps the abstraction boundary clean — consumers don't care which strategy a backend uses.
+The key insight: `accept_waveform(samples)` as the universal input allows all strategies to be implemented as layers. Native streaming models implement `StreamingTranscriptionEngine` directly; wrappers add VAD/windowing logic on top of batch models while exposing the same interface. This keeps the abstraction boundary clean — consumers don't care which strategy a backend uses.
 
 </details>
 
@@ -797,25 +752,26 @@ VAD filters silence *before* audio reaches the engine. `is_endpoint()` detects p
 
 **`transcription-rs`** (new crate):
 
-```rust
-// Borrows samples, returns flat list of Transcript
-fn transcribe_samples(&mut self, samples: &[f32], ...) -> Result<Vec<Transcript>, Error>;
-fn transcribe_file(&mut self, path: &Path, ...) -> Result<Vec<Transcript>, Error>;
+```
+INTERFACE BatchTranscriptionEngine
+    transcribe_samples(samples: List<Float>, ...) -> List<Transcript>
+    transcribe_file(path: String, ...) -> List<Transcript>
 ```
 
 **`transcribe-rs`** (deprecated wrapper):
 
-```rust
-// Old signature preserved - wraps transcription-rs internally
-fn transcribe_samples(&mut self, samples: Vec<f32>, ...) -> Result<TranscriptionResult, Error>;
-fn transcribe_file(&mut self, path: &Path, ...) -> Result<TranscriptionResult, Error>;
+```
+-- Old signature preserved - wraps transcription-rs internally
+INTERFACE TranscriptionEngine
+    transcribe_samples(samples: List<Float>, ...) -> TranscriptionResult
+    transcribe_file(path: String, ...) -> TranscriptionResult
 ```
 
-| Aspect        | `transcription-rs` | `transcribe-rs` (wrapper)                    |
-| ------------- | ------------------ | -------------------------------------------- |
-| Samples param | `&[f32]` (borrow)  | `Vec<f32>` (owned)                           |
-| Return type   | `Vec<Transcript>`  | `TranscriptionResult` with nested `segments` |
-| Streaming     | Full support       | Not exposed                                  |
+| Aspect        | `transcription-rs`  | `transcribe-rs` (wrapper)                    |
+| ------------- | ------------------- | -------------------------------------------- |
+| Samples param | borrowed reference  | owned copy                                   |
+| Return type   | `List<Transcript>`  | `TranscriptionResult` with nested `segments` |
+| Streaming     | Full support        | Not exposed                                  |
 
 </details>
 
