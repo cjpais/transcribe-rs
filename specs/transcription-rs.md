@@ -10,10 +10,134 @@ Realtime streaming transcription APIs come in two styles—pull (you call, get r
 
 transcription-rs abstracts away the impedance mismatch: backends implement whichever style matches their API, apps consume whichever style they prefer.
 
+### Legend
+
+```mermaid
+graph LR
+    ExistingPull["[Existing] Pull"] -- solid --> PlannedPull[Planned Pull]
+    ExistingPull -. dashed .-> PlannedPush[Planned Push]
+    Omitted[Omitted*]
+
+    classDef pullExisting fill:#cce5ff
+    classDef pullPlanned fill:#cce5ff,stroke-dasharray: 5 5
+    classDef pushPlanned fill:#e1f5e1,stroke-dasharray: 5 5
+    class ExistingPull pullExisting
+    class PlannedPull pullPlanned
+    class PlannedPush pushPlanned
+```
+
+### Batch Transcription (exists today)
+
 ```mermaid
 graph TB
-    subgraph Apps ["Consumer Apps — App Devs"]
-        App[App Code — Handy/Whispering]
+    subgraph Apps ["Consumer Apps"]
+        Handy[Handy]
+        Whispering[Whispering*]
+    end
+
+    subgraph Library ["transcription-rs Crate"]
+        subgraph Core ["Core"]
+            BatchEngine["BatchTranscriptionEngine [TranscriptionEngine] trait"]
+        end
+
+        subgraph Backends ["Backend Implementations — Contributors"]
+            ParakeetEngine["[ParakeetEngine] struct"]
+            OpenAIEngine["[OpenAIEngine] struct"]
+            WhisperEngine["[WhisperEngine] struct"]
+        end
+    end
+
+    subgraph External ["3rd Party APIs — External"]
+        NeMo[NeMo]
+        OpenAI[OpenAI]
+        WhisperCpp[whisper.cpp]
+    end
+
+    Handy -->|"Vec&lt;Transcript&gt;"| BatchEngine
+
+    BatchEngine --> ParakeetEngine
+    BatchEngine --> OpenAIEngine
+    BatchEngine --> WhisperEngine
+
+    ParakeetEngine --> NeMo
+    OpenAIEngine --> OpenAI
+    WhisperEngine --> WhisperCpp
+
+    classDef pullExisting fill:#cce5ff
+    class ParakeetEngine,OpenAIEngine,WhisperEngine,BatchEngine pullExisting
+```
+
+### Streaming Transcription (planned)
+
+```mermaid
+graph TB
+    subgraph Apps ["Consumer Apps"]
+        Handy[Handy]
+        Whispering[Whispering*]
+    end
+
+    subgraph Library ["transcription-rs Crate"]
+        subgraph Core ["Core"]
+            subgraph HighLevel ["High-Level Adapter"]
+                StreamingSource["StreamingTranscriptionSource struct"]
+            end
+
+            subgraph LowLevel ["Low-Level Trait"]
+                StreamingEngine["StreamingTranscriptionEngine trait"]
+            end
+
+            subgraph PushHelper ["Push Adapter"]
+                PushAdapter[PushAdapter struct]
+                PushSource[PushSource trait]
+            end
+        end
+
+        subgraph Backends ["Backend Implementations — Contributors"]
+            ParakeetEngine["ParakeetEngine struct"]
+            OpenAISource["OpenAISource struct"]
+        end
+    end
+
+    subgraph External ["3rd Party APIs — External"]
+        subgraph PullStreaming ["Pull Streaming (3)"]
+            NeMo[NeMo]
+            Vosk[Vosk*]
+            Sherpa[sherpa-onnx*]
+        end
+        subgraph PushStreaming ["Push Streaming (9)"]
+            Deepgram[Deepgram*]
+            OpenAI[OpenAI Realtime]
+            ElevenLabs[ElevenLabs*]
+        end
+    end
+
+    Handy -.->|Transcript| StreamingSource
+    Handy -.->|Transcript| StreamingEngine
+
+    StreamingSource -.-> StreamingEngine
+
+    StreamingEngine -.-> ParakeetEngine
+    StreamingEngine -.-> PushAdapter
+    
+    PushAdapter -.-> PushSource
+    PushSource -.-> OpenAISource
+
+    ParakeetEngine -.-> NeMo
+    OpenAISource -.-> OpenAI
+
+    classDef pushPlanned fill:#e1f5e1,stroke-dasharray: 5 5
+    classDef pullPlanned fill:#cce5ff,stroke-dasharray: 5 5
+    class StreamingSource,PushSource,OpenAISource pushPlanned
+    class StreamingEngine,PushAdapter,ParakeetEngine pullPlanned
+```
+
+### Combined View
+
+```mermaid
+graph TB
+    subgraph Apps ["Consumer Apps"]
+        Handy[Handy]
+        Whispering[Whispering*]
     end
 
     subgraph Library ["transcription-rs Crate"]
@@ -57,9 +181,9 @@ graph TB
         end
     end
 
-    App -.->|Transcript| StreamingSource
-    App -.->|Transcript| StreamingEngine
-    App -->|"Vec&lt;Transcript&gt;"| BatchEngine
+    Handy -.->|Transcript| StreamingSource
+    Handy -.->|Transcript| StreamingEngine
+    Handy -->|"Vec&lt;Transcript&gt;"| BatchEngine
 
     StreamingSource -.-> StreamingEngine
 
@@ -86,12 +210,6 @@ graph TB
     class StreamingEngine,PushAdapter pullPlanned
     class ParakeetEngine,OpenAIEngine,WhisperEngine,BatchEngine pullExisting
 ```
-
-**Legend:**
-- **Solid line/border** = exists today | **Dashed** = planned
-- **Blue fill** = pull (`*Engine` — you call it) | **Green fill** = push (`*Source` — callbacks)
-- **[Brackets]** in name = existing implementation
-- **\*** = backend implementation omitted from diagram for clarity
 
 <details>
 <summary>Compatible 3rd-party APIs (diagram shows representative subset)</summary>
