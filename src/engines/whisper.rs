@@ -69,8 +69,16 @@ use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextPar
 /// Currently, Whisper model loading doesn't require additional parameters
 /// beyond the model file path. This struct exists for API consistency
 /// and future extensibility.
-#[derive(Debug, Clone, Default)]
-pub struct WhisperModelParams {}
+#[derive(Debug, Clone)]
+pub struct WhisperModelParams {
+    pub use_gpu: bool,
+}
+
+impl Default for WhisperModelParams {
+    fn default() -> Self {
+        Self { use_gpu: true }
+    }
+}
 
 /// Parameters for configuring Whisper inference behavior.
 ///
@@ -198,12 +206,13 @@ impl TranscriptionEngine for WhisperEngine {
     fn load_model_with_params(
         &mut self,
         model_path: &Path,
-        _params: Self::ModelParams,
+        params: Self::ModelParams,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // Create new context and state following your working pattern
+        let mut context_params = WhisperContextParameters::default();
+        context_params.use_gpu = params.use_gpu;
         let context = WhisperContext::new_with_params(
             model_path.to_str().unwrap(),
-            WhisperContextParameters::default(),
+            context_params,
         )?;
 
         let state = context.create_state()?;
