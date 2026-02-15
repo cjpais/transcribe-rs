@@ -233,3 +233,126 @@ pub fn resample_chunk(
 
     Ok(output)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_mix_to_mono_passthrough() {
+        let mono = vec![0.1, 0.2, 0.3, 0.4];
+        let result = mix_to_mono(&mono, 1);
+        assert_eq!(result, mono);
+    }
+
+    #[test]
+    fn test_mix_to_mono_stereo() {
+        // Stereo: [L0, R0, L1, R1]
+        let stereo = vec![0.2, 0.8, -0.4, 0.6];
+        let result = mix_to_mono(&stereo, 2);
+        assert_eq!(result.len(), 2);
+        assert!((result[0] - 0.5).abs() < 1e-6, "Expected 0.5, got {}", result[0]);
+        assert!((result[1] - 0.1).abs() < 1e-6, "Expected 0.1, got {}", result[1]);
+    }
+
+    #[test]
+    fn test_mix_to_mono_three_channels() {
+        let samples = vec![0.3, 0.6, 0.9, 1.0, 0.5, 0.0];
+        let result = mix_to_mono(&samples, 3);
+        assert_eq!(result.len(), 2);
+        assert!((result[0] - 0.6).abs() < 1e-6);
+        assert!((result[1] - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_mix_to_mono_empty() {
+        let result = mix_to_mono(&[], 2);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_mix_to_mono_non_divisible_input() {
+        // 5 samples with 2 channels: last sample is trailing and should be dropped
+        let samples = vec![0.2, 0.8, -0.4, 0.6, 0.9];
+        let result = mix_to_mono(&samples, 2);
+        assert_eq!(result.len(), 2, "Trailing sample should be dropped by chunks_exact");
+        assert!((result[0] - 0.5).abs() < 1e-6);
+        assert!((result[1] - 0.1).abs() < 1e-6);
+    }
+}
+
+#[cfg(test)]
+#[cfg(feature = "resampling")]
+mod resampling_tests {
+    use super::*;
+
+    #[test]
+    fn test_create_resampler_none_for_16khz_mono() {
+        assert!(create_resampler(16000, 1).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_create_resampler_some_for_48khz() {
+        let result = create_resampler(48000, 1).unwrap();
+        assert!(result.is_some());
+        let (_, ratio) = result.unwrap();
+        assert!((ratio - 16000.0 / 48000.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_create_resampler_some_for_44100hz_stereo() {
+        let result = create_resampler(44100, 2).unwrap();
+        assert!(result.is_some());
+        let (_, ratio) = result.unwrap();
+        assert!((ratio - 16000.0 / 44100.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_resample_chunk_downsamples() {
+        let (mut resampler, ratio) = create_resampler(48000, 1).unwrap().unwrap();
+        // 4800 samples at 48kHz = 100ms
+        let input: Vec<f32> = vec![0.0; 4800];
+        let output = resample_chunk(&mut resampler, &input).unwrap();
+        // At 16kHz, 100ms = 1600 samples. Allow some tolerance for filter edge effects.
+        let expected = (4800.0 * ratio) as usize;
+        let tolerance = 200;
+        assert!(
+            output.len().abs_diff(expected) < tolerance,
+            "Expected ~{} output samples, got {}",
+            expected,
+            output.len()
+        );
+    }
+
+    #[test]
+    fn test_resample_chunk_small_input() {
+        let (mut resampler, _) = create_resampler(48000, 1).unwrap().unwrap();
+        // Input smaller than RESAMPLE_CHUNK_SIZE (1024)
+        let input: Vec<f32> = vec![0.0; 500];
+        let output = resample_chunk(&mut resampler, &input);
+        assert!(output.is_ok(), "Should handle sub-chunk input without error");
+        assert!(!output.unwrap().is_empty(), "Should produce some output");
+    }
+
+    #[test]
+    fn test_resample_chunk_preserves_energy() {
+        let (mut resampler, _) = create_resampler(48000, 1).unwrap().unwrap();
+        // Generate a DC signal — energy should be roughly preserved
+        let input: Vec<f32> = vec![0.5; 4800];
+        let output = resample_chunk(&mut resampler, &input).unwrap();
+        let avg: f32 = output.iter().sum::<f32>() / output.len() as f32;
+        assert!(
+            (avg - 0.5).abs() < 0.1,
+            "DC signal average should be roughly preserved after resampling, got {}",
+            avg
+        );
+    }
+
+    #[test]
+    fn test_resample_chunk_empty_input() {
+        let (mut resampler, _) = create_resampler(48000, 1).unwrap().unwrap();
+        let output = resample_chunk(&mut resampler, &[]).unwrap();
+        assert!(output.is_empty(), "Empty input should produce empty output");
+    }
+}
+
