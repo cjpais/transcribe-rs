@@ -35,6 +35,8 @@ transcribe-rs = { version = "0.1.5", features = ["all"] }
 | `moonshine` | UsefulSensors Moonshine (ONNX) | ort, ndarray, tokenizers |
 | `sense_voice` | FunASR SenseVoice (ONNX) | ort, ndarray, rustfft, base64 |
 | `whisperfile` | Mozilla whisperfile server wrapper | reqwest |
+| `nemotron-streaming` | NVIDIA Nemotron streaming (ONNX) | parakeet-rs, rubato |
+| `resampling` | Audio resampling utilities | rubato |
 | `openai` | OpenAI API (remote) | async-openai, tokio |
 | `all` | All engines enabled | All of the above |
 
@@ -101,6 +103,16 @@ models/sense-voice/
 
 SenseVoice models are available from [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models). Each download includes the ONNX model and tokens file. Models with `int8` in the name contain `model.int8.onnx`; the non-int8 version contains `model.onnx`.
 
+**Nemotron Streaming Model Directory Structure:**
+```
+models/nemotron-speech-streaming-en-0.6b/
+├── encoder.onnx               # Encoder model
+├── decoder_joint.onnx         # Decoder/joint network
+└── tokenizer.model            # SentencePiece vocabulary
+```
+
+Nemotron streaming models are available from [HuggingFace](https://huggingface.co/lokkju/nemotron-speech-streaming-en-0.6b-int8).
+
 **Audio Requirements:**
 - Format: WAV
 - Sample Rate: 16 kHz
@@ -116,6 +128,7 @@ SenseVoice models are available from [sherpa-onnx](https://github.com/k2-fsa/she
 - **Whisper**: https://huggingface.co/ggerganov/whisper.cpp/tree/main
 - **Whisperfile Binary**: https://github.com/mozilla-ai/llamafile/releases/download/0.9.3/whisperfile-0.9.3
 - **Moonshine**: https://huggingface.co/UsefulSensors/moonshine/tree/main/onnx/merged
+- **Nemotron Streaming**: https://huggingface.co/lokkju/nemotron-speech-streaming-en-0.6b-int8
 - **SenseVoice**:
   - Pre-packaged int8 quantized model: https://blob.handy.computer/sense-voice-int8.tar.gz
   - Additional models: https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models
@@ -174,6 +187,24 @@ engine.load_model_with_params(
 )?;
 let result = engine.transcribe_file(&PathBuf::from("audio.wav"), None)?;
 println!("{}", result.text);
+```
+
+### Nemotron Streaming Engine
+```rust
+use transcribe_rs::{StreamingTranscriptionEngine, engines::nemotron_streaming::{NemotronStreamingEngine, CHUNK_SIZE}};
+use std::path::PathBuf;
+
+let mut engine = NemotronStreamingEngine::new();
+engine.load_model(&PathBuf::from("models/nemotron-speech-streaming-en-0.6b"))?;
+
+// Feed audio in 560ms chunks (8960 samples at 16kHz)
+for chunk in samples.chunks(CHUNK_SIZE) {
+    let text = engine.push_samples(chunk)?;
+    if !text.is_empty() {
+        print!("{}", text);
+    }
+}
+let transcript = engine.get_transcript();
 ```
 
 ## Running the Examples
@@ -263,6 +294,9 @@ cargo run --example moonshine --features moonshine
 # Run SenseVoice example (add --int8 for quantized model)
 cargo run --example sense_voice --features sense_voice -- --int8 models/sense-voice-int8 samples/audio.wav
 
+# Run Nemotron streaming example
+cargo run --example nemotron_streaming --features nemotron-streaming
+
 # Run OpenAI API example
 cargo run --example openai --features openai
 ```
@@ -286,6 +320,7 @@ cargo test --features whisper
 cargo test --features moonshine
 cargo test --features sense_voice
 cargo test --features whisperfile
+cargo test --features nemotron-streaming
 cargo test --features openai
 
 # Test multiple engines
