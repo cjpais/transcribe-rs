@@ -123,3 +123,7 @@ required-features = ["whisperfile"]
 [[test]]
 name = "openai"
 required-features = ["openai"]
+
+[[test]]
+name = "nemotron_streaming"
+required-features = ["nemotron-streaming"]
