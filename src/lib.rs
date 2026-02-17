@@ -88,6 +88,20 @@ pub struct TranscriptionSegment {
     pub text: String,
 }
 
+/// A segment of text from a streaming transcription engine.
+///
+/// Each segment contains incremental text and a flag indicating whether the
+/// segment ends at a detected sentence boundary (period, question mark, or
+/// exclamation mark). This allows callers to flush output or trigger
+/// downstream processing when a sentence completes.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StreamingSegment {
+    /// The incremental text for this segment.
+    pub text: String,
+    /// Whether this segment ends at a detected sentence boundary (`.` `?` `!`).
+    pub is_endpoint: bool,
+}
+
 /// Common interface for speech transcription engines.
 ///
 /// This trait defines the standard operations that all transcription engines must support.
@@ -227,9 +241,12 @@ pub trait TranscriptionEngine {
 ///
 /// // Feed audio in chunks (e.g. from a microphone)
 /// for chunk in audio_chunks {
-///     let incremental = engine.push_samples(&chunk)?;
-///     if !incremental.is_empty() {
-///         print!("{}", incremental);
+///     let segments = engine.push_samples(&chunk)?;
+///     for seg in &segments {
+///         print!("{}", seg.text);
+///         if seg.is_endpoint {
+///             println!(); // newline after each sentence
+///         }
 ///     }
 /// }
 ///
@@ -256,16 +273,19 @@ pub trait StreamingTranscriptionEngine {
     /// Unload the model and free resources.
     fn unload_model(&mut self);
 
-    /// Push audio samples (16kHz mono f32) and return newly emitted text.
+    /// Push audio samples (16kHz mono f32) and return newly emitted segments.
     ///
-    /// Returns the incremental text produced by this chunk, or an empty string
-    /// if no new tokens were produced. The concatenation of all returned strings
-    /// approximates [`get_transcript`](StreamingTranscriptionEngine::get_transcript),
+    /// Returns a vec of [`StreamingSegment`]s produced by this chunk, or an
+    /// empty vec if no new tokens were produced. Each segment's `is_endpoint`
+    /// flag indicates whether the text ends at a detected sentence boundary.
+    ///
+    /// The concatenation of all segment texts approximates
+    /// [`get_transcript`](StreamingTranscriptionEngine::get_transcript),
     /// modulo tokenizer whitespace normalization.
     fn push_samples(
         &mut self,
         samples: &[f32],
-    ) -> Result<String, Box<dyn std::error::Error>>;
+    ) -> Result<Vec<StreamingSegment>, Box<dyn std::error::Error>>;
 
     /// Get the canonical accumulated transcript so far.
     ///
@@ -278,4 +298,166 @@ pub trait StreamingTranscriptionEngine {
     /// After this call, [`get_transcript`](StreamingTranscriptionEngine::get_transcript)
     /// returns an empty string. The model remains loaded and ready for new audio.
     fn reset(&mut self);
+}
+
+/// Split text at sentence boundaries (`. `, `? `, `! `, or sentence-ending
+/// punctuation at end-of-string) and return [`StreamingSegment`]s.
+///
+/// Splitting happens *after* the punctuation character, so the punctuation
+/// stays with the preceding segment. A trailing segment without sentence-ending
+/// punctuation gets `is_endpoint: false`.
+///
+/// Returns an empty vec for empty input.
+pub fn split_at_sentence_boundaries(text: &str) -> Vec<StreamingSegment> {
+    if text.is_empty() {
+        return vec![];
+    }
+
+    let sentence_end = ['.', '?', '!'];
+    let mut segments = Vec::new();
+    let mut start = 0;
+    let chars: Vec<char> = text.chars().collect();
+    let len = chars.len();
+
+    let mut i = 0;
+    while i < len {
+        if sentence_end.contains(&chars[i]) {
+            // Include the punctuation character
+            let end_byte = text
+                .char_indices()
+                .nth(i + 1)
+                .map(|(idx, _)| idx)
+                .unwrap_or(text.len());
+
+            // Check if this is end-of-string or followed by a space
+            let at_end = i + 1 >= len;
+            let followed_by_space = !at_end && chars[i + 1] == ' ';
+
+            if at_end || followed_by_space {
+                let segment_text = &text[start..end_byte];
+                segments.push(StreamingSegment {
+                    text: segment_text.to_string(),
+                    is_endpoint: true,
+                });
+                start = end_byte;
+            }
+        }
+        i += 1;
+    }
+
+    // Remaining text after last boundary (if any)
+    if start < text.len() {
+        segments.push(StreamingSegment {
+            text: text[start..].to_string(),
+            is_endpoint: false,
+        });
+    }
+
+    segments
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_split_single_sentence_with_period() {
+        let result = split_at_sentence_boundaries("Hello world.");
+        assert_eq!(
+            result,
+            vec![StreamingSegment {
+                text: "Hello world.".to_string(),
+                is_endpoint: true,
+            }]
+        );
+    }
+
+    #[test]
+    fn test_split_two_sentences() {
+        let result = split_at_sentence_boundaries("Hello. World");
+        assert_eq!(
+            result,
+            vec![
+                StreamingSegment {
+                    text: "Hello.".to_string(),
+                    is_endpoint: true,
+                },
+                StreamingSegment {
+                    text: " World".to_string(),
+                    is_endpoint: false,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn test_split_no_punctuation() {
+        let result = split_at_sentence_boundaries("no punctuation");
+        assert_eq!(
+            result,
+            vec![StreamingSegment {
+                text: "no punctuation".to_string(),
+                is_endpoint: false,
+            }]
+        );
+    }
+
+    #[test]
+    fn test_split_empty() {
+        let result = split_at_sentence_boundaries("");
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_split_multiple_sentence_types() {
+        let result = split_at_sentence_boundaries("First? Second! Third.");
+        assert_eq!(
+            result,
+            vec![
+                StreamingSegment {
+                    text: "First?".to_string(),
+                    is_endpoint: true,
+                },
+                StreamingSegment {
+                    text: " Second!".to_string(),
+                    is_endpoint: true,
+                },
+                StreamingSegment {
+                    text: " Third.".to_string(),
+                    is_endpoint: true,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn test_split_preserves_decimal_numbers() {
+        // "3.14" has a period NOT followed by a space and NOT at end, so no split
+        let result = split_at_sentence_boundaries("The value is 3.14 exactly");
+        assert_eq!(
+            result,
+            vec![StreamingSegment {
+                text: "The value is 3.14 exactly".to_string(),
+                is_endpoint: false,
+            }]
+        );
+    }
+
+    #[test]
+    fn test_split_sentence_ending_question() {
+        let result = split_at_sentence_boundaries("Are you sure? Yes.");
+        assert_eq!(
+            result,
+            vec![
+                StreamingSegment {
+                    text: "Are you sure?".to_string(),
+                    is_endpoint: true,
+                },
+                StreamingSegment {
+                    text: " Yes.".to_string(),
+                    is_endpoint: true,
+                },
+            ]
+        );
+    }
 }

@@ -26,11 +26,15 @@ fn test_jfk_streaming_transcription() {
 
     let samples = read_wav_samples(&audio_path).expect("Failed to read audio");
 
-    // Feed audio in chunk-sized increments, matching real-time streaming usage
+    // Feed audio in chunk-sized increments, collecting segment text
+    let mut all_text = String::new();
     for chunk in samples.chunks(CHUNK_SIZE) {
-        engine
+        let segments = engine
             .push_samples(chunk)
             .expect("push_samples should not fail");
+        for seg in &segments {
+            all_text.push_str(&seg.text);
+        }
     }
 
     let transcript = engine.get_transcript();
@@ -115,12 +119,14 @@ fn test_push_samples_returns_incremental_text() {
 
     let samples = read_wav_samples(&audio_path).expect("Failed to read audio");
 
-    // Collect incremental text from push_samples
+    // Collect incremental text from push_samples segments
     let mut incremental_parts: Vec<String> = Vec::new();
     for chunk in samples.chunks(CHUNK_SIZE) {
-        let text = engine.push_samples(chunk).expect("push_samples failed");
-        if !text.is_empty() {
-            incremental_parts.push(text);
+        let segments = engine.push_samples(chunk).expect("push_samples failed");
+        for seg in segments {
+            if !seg.text.is_empty() {
+                incremental_parts.push(seg.text);
+            }
         }
     }
 
@@ -133,6 +139,43 @@ fn test_push_samples_returns_incremental_text() {
     assert_eq!(
         concatenated.trim(), full_transcript.trim(),
         "Concatenated incremental text should match get_transcript()"
+    );
+}
+
+#[test]
+fn test_endpoint_detection() {
+    let model_path = PathBuf::from(MODEL_PATH);
+    if !model_path.exists() {
+        eprintln!("Skipping test: model not found at {:?}", model_path);
+        return;
+    }
+
+    let audio_path = PathBuf::from("samples/jfk.wav");
+    if !audio_path.exists() {
+        eprintln!("Skipping test: audio not found at {:?}", audio_path);
+        return;
+    }
+
+    let mut engine = NemotronStreamingEngine::new();
+    engine
+        .load_model(&model_path)
+        .expect("Failed to load model");
+
+    let samples = read_wav_samples(&audio_path).expect("Failed to read audio");
+
+    let mut endpoint_count = 0;
+    for chunk in samples.chunks(CHUNK_SIZE) {
+        let segments = engine.push_samples(chunk).expect("push_samples failed");
+        for seg in &segments {
+            if seg.is_endpoint {
+                endpoint_count += 1;
+            }
+        }
+    }
+
+    assert!(
+        endpoint_count > 0,
+        "JFK transcription should contain at least one sentence endpoint"
     );
 }
 

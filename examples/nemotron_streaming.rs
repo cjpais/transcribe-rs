@@ -36,9 +36,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let transcribe_start = Instant::now();
     for chunk in samples.chunks(CHUNK_SIZE) {
-        let text = engine.push_samples(chunk)?;
-        if !text.is_empty() {
-            print!("{}", text);
+        let segments = engine.push_samples(chunk)?;
+        for seg in &segments {
+            print!("{}", seg.text);
+            if seg.is_endpoint {
+                println!(" [END]");
+            }
         }
     }
     let transcribe_duration = transcribe_start.elapsed();

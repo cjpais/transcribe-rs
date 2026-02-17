@@ -23,9 +23,12 @@
 //! // Push 560ms chunks of 16kHz mono f32 audio
 //! # let audio_chunks: Vec<Vec<f32>> = vec![];
 //! for chunk in &audio_chunks {
-//!     let text = engine.push_samples(chunk)?;
-//!     if !text.is_empty() {
-//!         print!("{}", text);
+//!     let segments = engine.push_samples(chunk)?;
+//!     for seg in &segments {
+//!         print!("{}", seg.text);
+//!         if seg.is_endpoint {
+//!             println!(); // newline after each sentence
+//!         }
 //!     }
 //! }
 //! println!("\nFinal: {}", engine.get_transcript());
@@ -35,7 +38,7 @@
 use parakeet_rs::Nemotron;
 use std::path::{Path, PathBuf};
 
-use crate::StreamingTranscriptionEngine;
+use crate::{split_at_sentence_boundaries, StreamingSegment, StreamingTranscriptionEngine};
 
 /// Recommended chunk size in samples (560ms at 16kHz).
 pub const CHUNK_SIZE: usize = 8960;
@@ -106,7 +109,10 @@ impl StreamingTranscriptionEngine for NemotronStreamingEngine {
         self.loaded_model_path = None;
     }
 
-    fn push_samples(&mut self, samples: &[f32]) -> Result<String, Box<dyn std::error::Error>> {
+    fn push_samples(
+        &mut self,
+        samples: &[f32],
+    ) -> Result<Vec<StreamingSegment>, Box<dyn std::error::Error>> {
         let model = self
             .model
             .as_mut()
@@ -114,7 +120,11 @@ impl StreamingTranscriptionEngine for NemotronStreamingEngine {
         let text = model
             .transcribe_chunk(samples)
             .map_err(|e| NemotronStreamingError::Parakeet(format!("{e}")))?;
-        Ok(text)
+        if text.is_empty() {
+            Ok(vec![])
+        } else {
+            Ok(split_at_sentence_boundaries(&text))
+        }
     }
 
     fn get_transcript(&self) -> String {
