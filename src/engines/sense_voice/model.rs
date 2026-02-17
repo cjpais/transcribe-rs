@@ -95,7 +95,7 @@ impl SenseVoiceModel {
         log::info!("Loading SenseVoice model from {:?}...", model_path);
         let session = Self::init_session(&model_path)?;
 
-        let input_names: Vec<String> = session.inputs.iter().map(|i| i.name.clone()).collect();
+        let input_names: Vec<String> = session.inputs().iter().map(|i| i.name().to_string()).collect();
         log::debug!("Model inputs: {:?}", input_names);
 
         let metadata = Self::parse_metadata(&session)?;
@@ -130,19 +130,11 @@ impl SenseVoiceModel {
             .with_parallel_execution(true)?
             .commit_from_file(path)?;
 
-        for input in &session.inputs {
-            log::info!(
-                "Model input: name={}, type={:?}",
-                input.name,
-                input.input_type
-            );
+        for input in session.inputs() {
+            log::info!("Model input: name={}, type={:?}", input.name(), input.dtype());
         }
-        for output in &session.outputs {
-            log::info!(
-                "Model output: name={}, type={:?}",
-                output.name,
-                output.output_type
-            );
+        for output in session.outputs() {
+            log::info!("Model output: name={}, type={:?}", output.name(), output.dtype());
         }
 
         Ok(session)
@@ -151,7 +143,7 @@ impl SenseVoiceModel {
     /// Read a custom metadata string value from the ONNX model.
     fn read_meta_str(session: &Session, key: &str) -> Result<Option<String>, SenseVoiceError> {
         let meta = session.metadata()?;
-        Ok(meta.custom(key)?)
+        Ok(meta.custom(key).filter(|v| !v.is_empty()))
     }
 
     /// Read a custom metadata i32 value, with optional default.

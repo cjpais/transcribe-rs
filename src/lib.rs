@@ -207,3 +207,75 @@ pub trait TranscriptionEngine {
         self.transcribe_samples(samples, params)
     }
 }
+
+/// Interface for streaming (chunk-based) transcription engines.
+///
+/// Unlike [`TranscriptionEngine`] which processes complete audio,
+/// streaming engines accept audio incrementally via [`push_samples`](StreamingTranscriptionEngine::push_samples)
+/// and emit text as it becomes available.
+///
+/// Input audio must be 16kHz mono f32, same as `TranscriptionEngine`.
+///
+/// # Examples
+///
+/// ```ignore
+/// use transcribe_rs::{StreamingTranscriptionEngine, engines::nemotron_streaming::NemotronStreamingEngine};
+/// use std::path::PathBuf;
+///
+/// let mut engine = NemotronStreamingEngine::new();
+/// engine.load_model(&PathBuf::from("models/nemotron-speech-streaming-en-0.6b"))?;
+///
+/// // Feed audio in chunks (e.g. from a microphone)
+/// for chunk in audio_chunks {
+///     let incremental = engine.push_samples(&chunk)?;
+///     if !incremental.is_empty() {
+///         print!("{}", incremental);
+///     }
+/// }
+///
+/// let full = engine.get_transcript();
+/// println!("\nFinal: {}", full);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+pub trait StreamingTranscriptionEngine {
+    /// Parameters for configuring model loading.
+    type ModelParams: Default;
+
+    /// Load a streaming model from the given path using default parameters.
+    fn load_model(&mut self, model_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+        self.load_model_with_params(model_path, Self::ModelParams::default())
+    }
+
+    /// Load a streaming model from the given path with custom parameters.
+    fn load_model_with_params(
+        &mut self,
+        model_path: &Path,
+        params: Self::ModelParams,
+    ) -> Result<(), Box<dyn std::error::Error>>;
+
+    /// Unload the model and free resources.
+    fn unload_model(&mut self);
+
+    /// Push audio samples (16kHz mono f32) and return newly emitted text.
+    ///
+    /// Returns the incremental text produced by this chunk, or an empty string
+    /// if no new tokens were produced. The concatenation of all returned strings
+    /// approximates [`get_transcript`](StreamingTranscriptionEngine::get_transcript),
+    /// modulo tokenizer whitespace normalization.
+    fn push_samples(
+        &mut self,
+        samples: &[f32],
+    ) -> Result<String, Box<dyn std::error::Error>>;
+
+    /// Get the canonical accumulated transcript so far.
+    ///
+    /// This returns the full text produced by all `push_samples` calls since the
+    /// last [`reset`](StreamingTranscriptionEngine::reset) (or engine creation).
+    fn get_transcript(&self) -> String;
+
+    /// Reset all decoder state for a new utterance.
+    ///
+    /// After this call, [`get_transcript`](StreamingTranscriptionEngine::get_transcript)
+    /// returns an empty string. The model remains loaded and ready for new audio.
+    fn reset(&mut self);
+}

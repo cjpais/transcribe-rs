@@ -15,12 +15,14 @@ parakeet = ["dep:ort", "dep:ndarray", "dep:regex", "dep:once_cell"]
 moonshine = ["dep:ort", "dep:ndarray"]
 sense_voice = ["dep:ort", "dep:ndarray", "dep:rustfft", "dep:base64"]
 whisperfile = ["dep:ureq"]
+resampling = ["dep:rubato"]
+nemotron-streaming = ["dep:parakeet-rs", "resampling"]
 
 # Remote engines
 openai = ["dep:async-openai", "dep:tokio", "dep:async-trait"]
 
 # Convenience
-all = ["whisper", "parakeet", "moonshine", "sense_voice", "whisperfile", "openai"]
+all = ["whisper", "parakeet", "moonshine", "sense_voice", "whisperfile", "openai", "nemotron-streaming", "resampling"]
 
 [dependencies]
 # Always required
@@ -33,12 +35,16 @@ thiserror = "2.0.16"
 derive_builder = { version = "0.20.2" }
 
 # Parakeet & Moonshine (ONNX-based)
-ort = { version = "2.0.0-rc.10", optional = true }
-ndarray = { version = "0.16.1", optional = true }
+ort = { version = "2.0.0-rc.11", optional = true }
+ndarray = { version = "0.17", optional = true }
 
 # Parakeet only
 regex = { version = "1.11.2", optional = true }
 once_cell = { version = "1.21.3", optional = true }
+
+# Nemotron streaming (cache-aware chunk-based transcription)
+parakeet-rs = { version = "0.3", default-features = true, optional = true }
+rubato = { version = "0.15", optional = true }
 
 # SenseVoice (FBANK feature extraction)
 rustfft = { version = "6", optional = true }
@@ -87,6 +93,10 @@ name = "whisperfile"
 required-features = ["whisperfile"]
 
 [[example]]
+name = "nemotron_streaming"
+required-features = ["nemotron-streaming"]
+
+[[example]]
 name = "openai"
 required-features = ["openai"]
 
@@ -117,3 +127,7 @@ required-features = ["whisperfile"]
 [[test]]
 name = "openai"
 required-features = ["openai"]
+
+[[test]]
+name = "nemotron_streaming"
+required-features = ["nemotron-streaming"]

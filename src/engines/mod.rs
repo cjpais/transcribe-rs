@@ -10,6 +10,7 @@
 //! - `whisper` - OpenAI's Whisper (GGML format)
 //! - `parakeet` - NVIDIA NeMo Parakeet (ONNX format)
 //! - `moonshine` - Moonshine lightweight models (ONNX format)
+//! - `nemotron-streaming` - NVIDIA Nemotron streaming (ONNX, via parakeet-rs)
 //! - `whisperfile` - Mozilla whisperfile server wrapper
 //!
 //! # Example
@@ -21,6 +22,8 @@
 
 #[cfg(feature = "moonshine")]
 pub mod moonshine;
+#[cfg(feature = "nemotron-streaming")]
+pub mod nemotron_streaming;
 #[cfg(feature = "parakeet")]
 pub mod parakeet;
 #[cfg(feature = "sense_voice")]
