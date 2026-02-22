@@ -27,11 +27,27 @@ jobs:
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
 
+      - name: Setup Vulkan (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc | sudo tee /etc/apt/trusted.gpg.d/lunarg.asc
+          sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-noble.list https://packages.lunarg.com/vulkan/lunarg-vulkan-noble.list
+          sudo apt-get update
+          sudo apt-get install -y vulkan-sdk
+          echo "VULKAN_SDK=/usr" >> $GITHUB_ENV
+
+      - name: Setup Vulkan (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://sdk.lunarg.com/sdk/download/latest/windows/vulkan-sdk.exe" -OutFile "vulkan-sdk.exe"
+          Start-Process -FilePath "vulkan-sdk.exe" -ArgumentList "--root C:\VulkanSDK --accept-licenses --default-answer --confirm-command install" -Wait -NoNewWindow
+          echo "VULKAN_SDK=C:\VulkanSDK" | Out-File -FilePath $env:GITHUB_ENV -Append
+
       - name: Install dependencies (Linux)
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libasound2-dev pkg-config cmake libvulkan-dev vulkan-tools glslang-tools
+          sudo apt-get install -y libasound2-dev pkg-config cmake
 
       - name: Run Tests (Default Features)
         run: cargo test
@@ -123,7 +139,6 @@ jobs:
           mkdir -p models
           curl -sLo models/ggml-small.bin https://blob.handy.computer/ggml-small.bin
 
-          # Whisperfile uses a cosmopolitan APE (Actually Portable Executable)
           if [ "$RUNNER_OS" == "Windows" ]; then
             curl -sLo models/whisperfile-0.9.3.exe https://github.com/mozilla-ai/llamafile/releases/download/0.9.3/whisperfile-0.9.3
           else
