@@ -2,9 +2,9 @@ name: Tests
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 env:
   CARGO_TERM_COLOR: always
@@ -19,90 +19,120 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Set up Rust
-      uses: dtolnay/rust-toolchain@stable
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
 
-    - name: Rust Cache
-      uses: Swatinem/rust-cache@v2
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
 
-    - name: Cache Models
-      id: cache-models
-      uses: actions/cache@v4
-      with:
-        path: models/
-        key: ${{ runner.os }}-models-v1
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev pkg-config cmake
 
-    - name: Download test models
-      if: steps.cache-models.outputs.cache-hit != 'true'
-      shell: bash
-      run: |
-        mkdir -p models
-        
-        echo "Downloading Moonshine Base..."
-        mkdir -p models/moonshine-base
-        cd models/moonshine-base
-        curl -sLO https://huggingface.co/UsefulSensors/moonshine/resolve/main/onnx/merged/base/encoder_model.onnx
-        curl -sLO https://huggingface.co/UsefulSensors/moonshine/resolve/main/onnx/merged/base/decoder_model_merged.onnx
-        curl -sLO https://huggingface.co/UsefulSensors/moonshine/resolve/main/onnx/merged/base/tokenizer.json
-        cd ../..
+      - name: Run Tests (Default Features)
+        run: cargo test
 
-        echo "Downloading Parakeet..."
-        curl -sL https://blob.handy.computer/parakeet-v3-int8.tar.gz | tar -xz -C models/
-        
-        echo "Downloading SenseVoice..."
-        curl -sL https://blob.handy.computer/sense-voice-int8.tar.gz | tar -xz -C models/
+      - name: Cache Moonshine Model
+        id: cache-moonshine
+        uses: actions/cache@v4
+        with:
+          path: models/moonshine-base/
+          key: ${{ runner.os }}-moonshine-base-v1
 
-        echo "Downloading Whisperfile Model..."
-        curl -sLo models/ggml-small.bin https://blob.handy.computer/ggml-small.bin
-        
-        echo "Downloading Whisperfile Binary..."
-        if [ "$RUNNER_OS" == "Linux" ]; then
-          curl -sLo models/whisperfile-0.9.3 https://github.com/cjpais/whisperfile/releases/download/v0.9.3/whisperfile-0.9.3-linux-x86_64
-        elif [ "$RUNNER_OS" == "macOS" ]; then
-          curl -sLo models/whisperfile-0.9.3 https://github.com/cjpais/whisperfile/releases/download/v0.9.3/whisperfile-0.9.3-darwin-aarch64
-        elif [ "$RUNNER_OS" == "Windows" ]; then
-          curl -sLo models/whisperfile-0.9.3.exe https://github.com/cjpais/whisperfile/releases/download/v0.9.3/whisperfile-0.9.3-windows-x86_64.exe
-        fi
-        
-        if [ "$RUNNER_OS" != "Windows" ]; then
-          chmod +x models/whisperfile-0.9.3 || true
-        fi
+      - name: Download Moonshine
+        if: steps.cache-moonshine.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          mkdir -p models/moonshine-base
+          cd models/moonshine-base
+          curl -sLO https://huggingface.co/UsefulSensors/moonshine/resolve/main/onnx/merged/base/encoder_model.onnx
+          curl -sLO https://huggingface.co/UsefulSensors/moonshine/resolve/main/onnx/merged/base/decoder_model_merged.onnx
+          curl -sLO https://huggingface.co/UsefulSensors/moonshine/resolve/main/onnx/merged/base/tokenizer.json
 
-    - name: Install dependencies (Linux)
-      if: runner.os == 'Linux'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libasound2-dev pkg-config cmake
+      - name: Run Tests (Moonshine)
+        run: cargo test --features moonshine
 
-    - name: Run Tests (Default Features)
-      run: cargo test
+      - name: Cache Parakeet Model
+        id: cache-parakeet
+        uses: actions/cache@v4
+        with:
+          path: models/parakeet-tdt-0.6b-v3-int8/
+          key: ${{ runner.os }}-parakeet-v1
 
-    - name: Run Tests (Moonshine)
-      run: cargo test --features moonshine
+      - name: Download Parakeet
+        if: steps.cache-parakeet.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          mkdir -p models
+          curl -sL https://blob.handy.computer/parakeet-v3-int8.tar.gz | tar -xz -C models/
 
-    - name: Run Tests (Parakeet)
-      run: cargo test --features parakeet
+      - name: Run Tests (Parakeet)
+        run: cargo test --features parakeet
 
-    - name: Run Tests (SenseVoice)
-      run: cargo test --features sense_voice
+      - name: Cache SenseVoice Model
+        id: cache-sensevoice
+        uses: actions/cache@v4
+        with:
+          path: models/sense-voice-int8/
+          key: ${{ runner.os }}-sensevoice-v1
 
-    - name: Run Tests (Whisper)
-      run: cargo test --features whisper
+      - name: Download SenseVoice
+        if: steps.cache-sensevoice.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          mkdir -p models
+          curl -sL https://blob.handy.computer/sense-voice-int8.tar.gz | tar -xz -C models/
 
-    - name: Run Tests (Whisperfile)
-      shell: bash
-      run: |
-        if [ "$RUNNER_OS" == "Windows" ]; then
-          export WHISPERFILE_BIN="models/whisperfile-0.9.3.exe"
-        else
-          export WHISPERFILE_BIN="models/whisperfile-0.9.3"
-        fi
-        export WHISPERFILE_MODEL="models/ggml-small.bin"
-        
-        if [ -f "$WHISPERFILE_BIN" ]; then
-          cargo test --features whisperfile
-        else
-          echo "Skipping whisperfile tests due to missing binary at $WHISPERFILE_BIN"
-        fi
+      - name: Run Tests (SenseVoice)
+        run: cargo test --features sense_voice
+
+      - name: Run Tests (Whisper)
+        run: cargo test --features whisper
+
+      - name: Cache Whisperfile Resources
+        id: cache-whisperfile
+        uses: actions/cache@v4
+        with:
+          path: |
+            models/ggml-small.bin
+            models/whisperfile-*
+          key: ${{ runner.os }}-whisperfile-v1
+
+      - name: Download Whisperfile
+        if: steps.cache-whisperfile.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          mkdir -p models
+          curl -sLo models/ggml-small.bin https://blob.handy.computer/ggml-small.bin
+
+          if [ "$RUNNER_OS" == "Linux" ]; then
+            curl -sLo models/whisperfile-0.9.3 https://github.com/cjpais/whisperfile/releases/download/v0.9.3/whisperfile-0.9.3-linux-x86_64
+          elif [ "$RUNNER_OS" == "macOS" ]; then
+            curl -sLo models/whisperfile-0.9.3 https://github.com/cjpais/whisperfile/releases/download/v0.9.3/whisperfile-0.9.3-darwin-aarch64
+          elif [ "$RUNNER_OS" == "Windows" ]; then
+            curl -sLo models/whisperfile-0.9.3.exe https://github.com/cjpais/whisperfile/releases/download/v0.9.3/whisperfile-0.9.3-windows-x86_64.exe
+          fi
+
+      - name: Run Tests (Whisperfile)
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" != "Windows" ]; then
+            chmod +x models/whisperfile-0.9.3 || true
+          fi
+
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            export WHISPERFILE_BIN="models/whisperfile-0.9.3.exe"
+          else
+            export WHISPERFILE_BIN="models/whisperfile-0.9.3"
+          fi
+          export WHISPERFILE_MODEL="models/ggml-small.bin"
+
+          if [ -f "$WHISPERFILE_BIN" ]; then
+            cargo test --features whisperfile
+          else
+            echo "Skipping whisperfile tests due to missing binary at $WHISPERFILE_BIN"
+          fi
