@@ -1,15 +1,17 @@
 use once_cell::sync::Lazy;
 use std::path::PathBuf;
 use std::sync::Mutex;
-use transcribe_rs::engines::whisper::{WhisperEngine, WhisperInferenceParams};
+use transcribe_rs::engines::whisper::{WhisperEngine, WhisperInferenceParams, WhisperModelParams};
 use transcribe_rs::TranscriptionEngine;
 
 // Shared model loaded once for all tests
 static MODEL_ENGINE: Lazy<Mutex<WhisperEngine>> = Lazy::new(|| {
     let mut engine = WhisperEngine::new();
     let model_path = PathBuf::from("models/whisper-medium-q4_1.bin");
+    let mut params = WhisperModelParams::default();
+    params.use_gpu = false;
     engine
-        .load_model(&model_path)
+        .load_model_with_params(&model_path, params)
         .expect("Failed to load model");
     Mutex::new(engine)
 });
