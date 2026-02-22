@@ -339,9 +339,9 @@ Download the Moonshine base model:
 ```bash
 mkdir -p models/moonshine-base
 cd models/moonshine-base
-wget https://huggingface.co/UsefulSensors/moonshine/resolve/main/onnx/merged/base/encoder_model.onnx
-wget https://huggingface.co/UsefulSensors/moonshine/resolve/main/onnx/merged/base/decoder_model_merged.onnx
-wget https://huggingface.co/UsefulSensors/moonshine/resolve/main/onnx/merged/base/tokenizer.json
+wget https://huggingface.co/onnx-community/moonshine-base-ONNX/resolve/main/onnx/encoder_model.onnx
+wget https://huggingface.co/onnx-community/moonshine-base-ONNX/resolve/main/onnx/decoder_model_merged.onnx
+wget https://huggingface.co/onnx-community/moonshine-base-ONNX/resolve/main/tokenizer.json
 cd ../..
 
 # Run tests

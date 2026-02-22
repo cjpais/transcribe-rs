@@ -49,9 +49,9 @@ jobs:
         run: |
           mkdir -p models/moonshine-base
           cd models/moonshine-base
-          curl -sLO https://huggingface.co/UsefulSensors/moonshine/resolve/main/onnx/merged/base/encoder_model.onnx
-          curl -sLO https://huggingface.co/UsefulSensors/moonshine/resolve/main/onnx/merged/base/decoder_model_merged.onnx
-          curl -sLO https://huggingface.co/UsefulSensors/moonshine/resolve/main/onnx/merged/base/tokenizer.json
+          curl -sLO https://huggingface.co/onnx-community/moonshine-base-ONNX/resolve/main/onnx/encoder_model.onnx
+          curl -sLO https://huggingface.co/onnx-community/moonshine-base-ONNX/resolve/main/onnx/decoder_model_merged.onnx
+          curl -sLO https://huggingface.co/onnx-community/moonshine-base-ONNX/resolve/main/tokenizer.json
 
       - name: Run Tests (Moonshine)
         run: cargo test --features moonshine
