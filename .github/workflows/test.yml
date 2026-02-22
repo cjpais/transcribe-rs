@@ -31,7 +31,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev pkg-config cmake
+          sudo apt-get install -y libasound2-dev pkg-config cmake libvulkan-dev vulkan-tools glslang-tools
 
       - name: Run Tests (Default Features)
         run: cargo test
@@ -89,6 +89,20 @@ jobs:
 
       - name: Run Tests (SenseVoice)
         run: cargo test --features sense_voice
+
+      - name: Cache Whisper Model
+        id: cache-whisper
+        uses: actions/cache@v5
+        with:
+          path: models/whisper-medium-q4_1.bin
+          key: ${{ runner.os }}-whisper-medium-v1
+
+      - name: Download Whisper
+        if: steps.cache-whisper.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          mkdir -p models
+          curl -sLo models/whisper-medium-q4_1.bin https://blob.handy.computer/whisper-medium-q4_1.bin
 
       - name: Run Tests (Whisper)
         run: cargo test --features whisper
