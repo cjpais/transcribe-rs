@@ -19,7 +19,7 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -38,7 +38,7 @@ jobs:
 
       - name: Cache Moonshine Model
         id: cache-moonshine
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: models/moonshine-base/
           key: ${{ runner.os }}-moonshine-base-v1
@@ -58,7 +58,7 @@ jobs:
 
       - name: Cache Parakeet Model
         id: cache-parakeet
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: models/parakeet-tdt-0.6b-v3-int8/
           key: ${{ runner.os }}-parakeet-v1
@@ -75,7 +75,7 @@ jobs:
 
       - name: Cache SenseVoice Model
         id: cache-sensevoice
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: models/sense-voice-int8/
           key: ${{ runner.os }}-sensevoice-v1
@@ -95,7 +95,7 @@ jobs:
 
       - name: Cache Whisperfile Resources
         id: cache-whisperfile
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             models/ggml-small.bin
@@ -109,12 +109,11 @@ jobs:
           mkdir -p models
           curl -sLo models/ggml-small.bin https://blob.handy.computer/ggml-small.bin
 
-          if [ "$RUNNER_OS" == "Linux" ]; then
-            curl -sLo models/whisperfile-0.9.3 https://github.com/cjpais/whisperfile/releases/download/v0.9.3/whisperfile-0.9.3-linux-x86_64
-          elif [ "$RUNNER_OS" == "macOS" ]; then
-            curl -sLo models/whisperfile-0.9.3 https://github.com/cjpais/whisperfile/releases/download/v0.9.3/whisperfile-0.9.3-darwin-aarch64
-          elif [ "$RUNNER_OS" == "Windows" ]; then
-            curl -sLo models/whisperfile-0.9.3.exe https://github.com/cjpais/whisperfile/releases/download/v0.9.3/whisperfile-0.9.3-windows-x86_64.exe
+          # Whisperfile uses a cosmopolitan APE (Actually Portable Executable)
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            curl -sLo models/whisperfile-0.9.3.exe https://github.com/mozilla-ai/llamafile/releases/download/0.9.3/whisperfile-0.9.3
+          else
+            curl -sLo models/whisperfile-0.9.3 https://github.com/mozilla-ai/llamafile/releases/download/0.9.3/whisperfile-0.9.3
           fi
 
       - name: Run Tests (Whisperfile)
