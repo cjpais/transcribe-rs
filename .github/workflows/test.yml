@@ -8,6 +8,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  VULKAN_VERSION: 1.4.341.1
 
 jobs:
   test:
@@ -26,28 +27,40 @@ jobs:
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
+        with:
+          # Invalidate cache when Vulkan version
+          prefix-key: "v1-vulkan-${{ env.VULKAN_VERSION }}-${{ runner.os }}"
 
-      - name: Setup Vulkan (Linux)
+      - name: Setup Vulkan SDK (Linux)
         if: runner.os == 'Linux'
-        run: |
-          wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc | sudo tee /etc/apt/trusted.gpg.d/lunarg.asc
-          sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-noble.list https://packages.lunarg.com/vulkan/lunarg-vulkan-noble.list
-          sudo apt-get update
-          sudo apt-get install -y vulkan-sdk
-          echo "VULKAN_SDK=/usr" >> $GITHUB_ENV
+        uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          vulkan_version: ${{ env.VULKAN_VERSION }}
+          install_runtime: true
 
-      - name: Setup Vulkan (Windows)
+      - name: Setup Vulkan SDK (Windows)
         if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          Invoke-WebRequest -Uri "https://sdk.lunarg.com/sdk/download/latest/windows/vulkan-sdk.exe" -OutFile "vulkan-sdk.exe"
-          Start-Process -FilePath "vulkan-sdk.exe" -ArgumentList "--root C:\VulkanSDK --accept-licenses --default-answer --confirm-command install" -Wait -NoNewWindow
-          echo "VULKAN_SDK=C:\VulkanSDK" | Out-File -FilePath $env:GITHUB_ENV -Append
+        uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          vulkan_version: ${{ env.VULKAN_VERSION }}
+          install_runtime: true
+          install_swiftshader: true
 
-      - name: Install dependencies (Linux)
-        if: runner.os == 'Linux'
+      - name: Configure Environment
+        shell: bash
         run: |
-          sudo apt-get install -y libasound2-dev pkg-config cmake
+          if [ "$RUNNER_OS" == "macOS" ]; then
+            echo "WHISPER_USE_GPU=1" >> $GITHUB_ENV
+          elif [ "$RUNNER_OS" == "Linux" ]; then
+            sudo apt-get update
+            sudo apt-get install -y mesa-vulkan-drivers libgomp1 libvulkan-dev
+            LVP_ICD=$(find /usr/share/vulkan/icd.d/ -name "lvp_icd*.json" | head -n 1)
+            echo "VK_ICD_FILENAMES=$LVP_ICD" >> $GITHUB_ENV
+            echo "WHISPER_USE_GPU=0" >> $GITHUB_ENV
+          elif [ "$RUNNER_OS" == "Windows" ]; then
+            echo "VK_ICD_FILENAMES=C:\swiftshader\vk_swiftshader_icd.json" >> $GITHUB_ENV
+            echo "WHISPER_USE_GPU=0" >> $GITHUB_ENV
+          fi
 
       - name: Run Tests (Default Features)
         run: cargo test
@@ -110,15 +123,15 @@ jobs:
         id: cache-whisper
         uses: actions/cache@v5
         with:
-          path: models/whisper-medium-q4_1.bin
-          key: ${{ runner.os }}-whisper-medium-v1
+          path: models/whisper-tiny.bin
+          key: ${{ runner.os }}-whisper-tiny-v1
 
       - name: Download Whisper
         if: steps.cache-whisper.outputs.cache-hit != 'true'
         shell: bash
         run: |
           mkdir -p models
-          curl -sLo models/whisper-medium-q4_1.bin https://blob.handy.computer/whisper-medium-q4_1.bin
+          curl -sLo models/whisper-tiny.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin
 
       - name: Run Tests (Whisper)
         run: cargo test --features whisper
@@ -148,13 +161,10 @@ jobs:
       - name: Run Tests (Whisperfile)
         shell: bash
         run: |
-          if [ "$RUNNER_OS" != "Windows" ]; then
-            chmod +x models/whisperfile-0.9.3 || true
-          fi
-
           if [ "$RUNNER_OS" == "Windows" ]; then
             export WHISPERFILE_BIN="models/whisperfile-0.9.3.exe"
           else
+            chmod +x models/whisperfile-0.9.3 || true
             export WHISPERFILE_BIN="models/whisperfile-0.9.3"
           fi
           export WHISPERFILE_MODEL="models/ggml-small.bin"

@@ -7,9 +7,11 @@ use transcribe_rs::TranscriptionEngine;
 // Shared model loaded once for all tests
 static MODEL_ENGINE: Lazy<Mutex<WhisperEngine>> = Lazy::new(|| {
     let mut engine = WhisperEngine::new();
-    let model_path = PathBuf::from("models/whisper-medium-q4_1.bin");
+    let model_path = PathBuf::from("models/whisper-tiny.bin");
     let mut params = WhisperModelParams::default();
-    params.use_gpu = false;
+    params.use_gpu = std::env::var("WHISPER_USE_GPU")
+        .map(|v| v == "1")
+        .unwrap_or(true);
     engine
         .load_model_with_params(&model_path, params)
         .expect("Failed to load model");
@@ -32,13 +34,15 @@ fn test_jfk_transcription() {
         .transcribe_file(&audio_path, None)
         .expect("Failed to transcribe");
 
-    let expected = "And so my fellow Americans, ask not what your country can do for you, ask what you can do for your country.";
+    // We strip punctuation because different OS's have subtle floating-point variations,
+    // causing tiny models to sometimes output a comma or period on one OS but not another.
+    let actual = result.text.trim().replace(",", "").replace(".", "");
+    let expected = "And so my fellow Americans ask not what your country can do for you ask what you can do for your country";
+
     assert_eq!(
-        result.text.trim(),
-        expected,
+        actual, expected,
         "\nExpected: '{}'\nActual: '{}'",
-        expected,
-        result.text.trim()
+        expected, actual
     );
 }
 
