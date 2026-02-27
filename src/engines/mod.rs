@@ -25,6 +25,8 @@
 pub mod gigaam;
 #[cfg(feature = "moonshine")]
 pub mod moonshine;
+#[cfg(feature = "paraformer")]
+pub mod paraformer;
 #[cfg(feature = "parakeet")]
 pub mod parakeet;
 #[cfg(feature = "sense_voice")]

@@ -6,11 +6,15 @@ This library was extracted from the [Handy](https://github.com/cjpais/handy) pro
 
 ## Features
 
-- **Multiple Transcription Engines**: Support for Whisper, Whisperfile, Parakeet, Moonshine, SenseVoice, and GigaAM models
+- **Multiple Transcription Engines**: Support for Whisper, Whisperfile, Parakeet, Moonshine, SenseVoice, GigaAM, and Paraformer models
 - **Cross-platform**: Works on macOS, Windows, and Linux with optimized backends
 - **Hardware Acceleration**: Metal on macOS, Vulkan on Windows/Linux
 - **Flexible API**: Common interface for different transcription engines
-- **Multi-language Support**: SenseVoice supports Chinese, English, Japanese, Korean, and Cantonese; Moonshine supports English, Arabic, Chinese, Japanese, Korean, Ukrainian, Vietnamese, and Spanish; GigaAM supports Russian with punctuation and Latin characters
+- **Multi-language Support**:
+  - SenseVoice supports Chinese, English, Japanese, Korean, and Cantonese
+  - Moonshine supports English, Arabic, Chinese, Japanese, Korean, Ukrainian, Vietnamese, and Spanish
+  - GigaAM supports Russian with punctuation and Latin characters
+  - **Paraformer supports Chinese, English, and Cantonese (recommended)**
 - **Opt-in Dependencies**: Only compile and link the engines you need via Cargo features
 
 ## Installation
@@ -35,8 +39,12 @@ transcribe-rs = { version = "0.1.5", features = ["all"] }
 | `moonshine` | UsefulSensors Moonshine (ONNX) | ort, ndarray, tokenizers |
 | `sense_voice` | FunASR SenseVoice (ONNX) | ort, ndarray, rustfft, base64 |
 | `gigaam` | SberDevices GigaAM v3 (ONNX) | ort, ndarray, rustfft |
+| `paraformer` | sherpa-onnx Paraformer (ONNX) | ort, ndarray, rustfft |
+| `zipformer-ctc` | sherpa-onnx Zipformer CTC (ONNX) | ort, ndarray, rustfft |
+| `zipformer-transducer` | sherpa-onnx Zipformer Transducer (ONNX) | ort, ndarray, rustfft |
 | `whisperfile` | Mozilla whisperfile server wrapper | reqwest |
 | `openai` | OpenAI API (remote) | async-openai, tokio |
+| `punct` | Punctuation model for text post-processing | ort, ndarray |
 | `all` | All engines enabled | All of the above |
 
 **Note**: By default, no features are enabled. You must explicitly choose which engines to include.
@@ -113,11 +121,43 @@ SenseVoice models are available from [sherpa-onnx](https://github.com/k2-fsa/she
 - Bit Depth: 16-bit
 - Encoding: PCM
 
-## Model Downloads
+## Recommended Models
+
+### Paraformer (Recommended for Chinese/English)
+
+**Recommended Models:**
+
+| Model | Languages | Description |
+|-------|-----------|-------------|
+| `sherpa-trilingual` | Chinese, English, Cantonese | Best overall - supports trilingual transcription |
+| `sherpa-onnx-paraformer-zh-2025-10-07` | Chinese | Latest Chinese model |
+| `sherpa-onnx-paraformer-zh-small-2024-03-09` | Chinese | Smaller, faster model |
+
+**Paraformer Model Directory Structure:**
+```
+models/sherpa-trilingual/
+├── model.onnx              # Full precision model (FP32)
+├── model.int8.onnx        # Quantized model (Int8)
+├── tokens.txt             # Token vocabulary
+├── tokens.json            # Token vocabulary (JSON)
+├── am.mvn                 # CMVN normalization
+├── config.yaml            # Model configuration
+```
+
+**Paraformer Features:**
+- High accuracy for Chinese and English
+- Built-in punctuation support
+- Fast inference speed (10-17x real-time)
+- Supports auto-punctuation (add `--no-punct` to disable)
+
+### Model Downloads
 
 - **Parakeet**:
   - Pre-packaged int8 quantized model: https://blob.handy.computer/parakeet-v3-int8.tar.gz
   - Original model files: https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/tree/main
+- **Paraformer**:
+  - Download from: https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models
+  - Recommended: `sherpa-onnx-paraformer-zh-2025-10-07` or `sherpa-trilingual`
 - **Whisper**: https://huggingface.co/ggerganov/whisper.cpp/tree/main
 - **Whisperfile Binary**: https://github.com/mozilla-ai/llamafile/releases/download/0.9.3/whisperfile-0.9.3
 - **Moonshine**: https://huggingface.co/UsefulSensors/moonshine/tree/main/onnx/merged
@@ -179,6 +219,20 @@ let result = engine.transcribe_file(&PathBuf::from("audio.wav"), None)?;
 println!("{}", result.text);
 ```
 
+### Paraformer Engine (Recommended)
+```rust
+use transcribe_rs::{TranscriptionEngine, engines::paraformer::{ParaformerEngine, ParaformerModelParams}};
+use std::path::PathBuf;
+
+let mut engine = ParaformerEngine::new();
+engine.load_model_with_params(
+    &PathBuf::from("path/to/model"),
+    ParaformerModelParams::default(),
+)?;
+let result = engine.transcribe_file(&PathBuf::from("audio.wav"), None)?;
+println!("{}", result.text);
+```
+
 ### Whisperfile Engine
 ```rust
 use transcribe_rs::{TranscriptionEngine, engines::whisperfile::{WhisperfileEngine, WhisperfileModelParams}};
@@ -203,6 +257,21 @@ println!("{}", result.text);
    ```
 
 2. **Download models for the engine you want to use:**
+
+   **For Paraformer (Recommended):**
+   ```bash
+   cd models
+   # Download trilingual model (supports Chinese, English, Cantonese)
+   wget https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-trilingual-paraformer.tar.bz2
+   tar -xjf sherpa-onnx-trilingual-paraformer.tar.bz2
+   rm sherpa-onnx-trilingual-paraformer.tar.bz2
+   
+   # Or download Chinese-only model
+   wget https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-paraformer-zh-2025-10-07.tar.bz2
+   tar -xjf sherpa-onnx-paraformer-zh-2025-10-07.tar.bz2
+   rm sherpa-onnx-paraformer-zh-2025-10-07.tar.bz2
+   cd ..
+   ```
 
    **For Parakeet:**
    ```bash
@@ -272,6 +341,9 @@ println!("{}", result.text);
 Each engine has its own example file. You must specify the required feature when running:
 
 ```bash
+# Run Paraformer example (recommended for Chinese/English)
+cargo run --example paraformer --features "paraformer punct"
+
 # Run Parakeet example (recommended for performance)
 cargo run --example parakeet --features parakeet
 
@@ -417,6 +489,21 @@ cargo test --features gigaam
 ```
 
 GigaAM tests require a Russian audio sample at `samples/russian.wav`. Tests will skip if model or audio files are not found.
+
+**For Paraformer tests:**
+
+Download the Paraformer trilingual model:
+```bash
+cd models
+wget https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-trilingual-paraformer.tar.bz2
+tar -xjf sherpa-onnx-trilingual-paraformer.tar.bz2
+rm sherpa-onnx-trilingual-paraformer.tar.bz2
+cd ..
+
+# Run tests
+cargo test --features paraformer
+```
+
 
 **For Whisper tests:**
 

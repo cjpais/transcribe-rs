@@ -65,6 +65,11 @@ pub mod itn;
 #[cfg(feature = "itn")]
 pub use itn::apply_itn;
 
+#[cfg(feature = "punct")]
+pub mod punct;
+#[cfg(feature = "punct")]
+pub use punct::{add_punctuation, add_punctuation_with_model};
+
 use std::path::Path;
 
 /// The result of a transcription operation.

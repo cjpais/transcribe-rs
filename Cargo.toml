@@ -15,6 +15,9 @@ parakeet = ["dep:ort", "dep:ndarray", "dep:regex", "dep:once_cell"]
 moonshine = ["dep:ort", "dep:ndarray"]
 sense_voice = ["dep:ort", "dep:ndarray", "dep:rustfft", "dep:base64"]
 gigaam = ["dep:ort", "dep:ndarray", "dep:rustfft"]
+paraformer = ["dep:ort", "dep:ndarray", "dep:rustfft"]
+zipformer-ctc = ["dep:ort", "dep:ndarray", "dep:rustfft"]
+zipformer-transducer = ["dep:ort", "dep:ndarray", "dep:rustfft"]
 whisperfile = ["dep:ureq"]
 
 # Remote engines
@@ -22,9 +25,10 @@ openai = ["dep:async-openai", "dep:tokio", "dep:async-trait"]
 
 # Post-processing
 # itn = ["dep:nemo-text-processing"]  # TODO: re-enable when nemo-text-processing is published to crates.io
+punct = ["dep:ort", "dep:ndarray"]
 
 # Convenience
-all = ["whisper", "parakeet", "moonshine", "sense_voice", "gigaam", "whisperfile", "openai"]
+all = ["whisper", "parakeet", "moonshine", "sense_voice", "gigaam", "paraformer", "zipformer-ctc", "zipformer-transducer", "whisperfile", "openai", "punct"]
 
 [dependencies]
 # Always required
@@ -94,6 +98,14 @@ required-features = ["gigaam"]
 [[example]]
 name = "sense_voice"
 required-features = ["sense_voice"]
+
+[[example]]
+name = "paraformer"
+required-features = ["paraformer"]
+
+[[example]]
+name = "paraformer_punct"
+required-features = ["paraformer", "punct"]
 
 [[example]]
 name = "whisperfile"
