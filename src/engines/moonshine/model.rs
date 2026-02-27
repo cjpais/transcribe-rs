@@ -1,5 +1,5 @@
 use ndarray::{Array2, ArrayD};
-use ort::execution_providers::CPUExecutionProvider;
+use ort::ep::{CoreML, CPU, NNAPI};
 use ort::inputs;
 use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
@@ -7,7 +7,7 @@ use ort::value::TensorRef;
 use std::path::Path;
 
 use super::cache::KVCache;
-use super::engine::ModelVariant;
+use super::engine::{ModelVariant, MoonshineModelParams};
 use super::tokenizer::MoonshineTokenizer;
 
 const DECODER_START_TOKEN_ID: i64 = 1;
@@ -54,7 +54,7 @@ impl Drop for MoonshineModel {
 }
 
 impl MoonshineModel {
-    pub fn new(model_dir: &Path, variant: ModelVariant) -> Result<Self, MoonshineError> {
+    pub fn new(model_dir: &Path, params: MoonshineModelParams) -> Result<Self, MoonshineError> {
         let encoder_path = model_dir.join("encoder_model.onnx");
         let decoder_path = model_dir.join("decoder_model_merged.onnx");
 
@@ -70,15 +70,21 @@ impl MoonshineModel {
         }
 
         log::info!("Loading Moonshine encoder from {:?}...", encoder_path);
-        let encoder = Self::init_session(&encoder_path)?;
+        let encoder = Self::init_session(&encoder_path, &params)?;
 
         log::info!("Loading Moonshine decoder from {:?}...", decoder_path);
-        let decoder = Self::init_session(&decoder_path)?;
+        let decoder = Self::init_session(&decoder_path, &params)?;
 
-        let encoder_input_names: Vec<String> =
-            encoder.inputs().iter().map(|i| i.name().to_string()).collect();
-        let decoder_input_names: Vec<String> =
-            decoder.inputs().iter().map(|i| i.name().to_string()).collect();
+        let encoder_input_names: Vec<String> = encoder
+            .inputs()
+            .iter()
+            .map(|i| i.name().to_string())
+            .collect();
+        let decoder_input_names: Vec<String> = decoder
+            .inputs()
+            .iter()
+            .map(|i| i.name().to_string())
+            .collect();
 
         log::debug!("Encoder inputs: {:?}", encoder_input_names);
         log::debug!("Decoder inputs: {:?}", decoder_input_names);
@@ -89,14 +95,26 @@ impl MoonshineModel {
             encoder,
             decoder,
             tokenizer,
-            variant,
+            variant: params.variant,
             encoder_input_names,
             decoder_input_names,
         })
     }
 
-    fn init_session(path: &Path) -> Result<Session, MoonshineError> {
-        let providers = vec![CPUExecutionProvider::default().build()];
+    fn init_session(path: &Path, params: &MoonshineModelParams) -> Result<Session, MoonshineError> {
+        let mut providers = Vec::new();
+
+        if params.use_coreml {
+            providers.push(CoreML::default().build());
+        }
+        if params.use_nnapi {
+            providers.push(NNAPI::default().build());
+        }
+        // Vulkan provider seems to be missing or named differently in this ort version
+        // if params.use_vulkan {
+        //     providers.push(Vulkan::default().build());
+        // }
+        providers.push(CPU::default().build());
 
         let session = Session::builder()?
             .with_optimization_level(GraphOptimizationLevel::Level3)?

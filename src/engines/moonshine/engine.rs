@@ -90,6 +90,12 @@ impl Default for ModelVariant {
 pub struct MoonshineModelParams {
     /// The model variant to load.
     pub variant: ModelVariant,
+    /// Use CoreML (macOS only)
+    pub use_coreml: bool,
+    /// Use NNAPI (Android only)
+    pub use_nnapi: bool,
+    /// Use Vulkan (Windows/Linux)
+    pub use_vulkan: bool,
 }
 
 impl MoonshineModelParams {
@@ -97,6 +103,7 @@ impl MoonshineModelParams {
     pub fn tiny() -> Self {
         Self {
             variant: ModelVariant::Tiny,
+            ..Default::default()
         }
     }
 
@@ -104,12 +111,16 @@ impl MoonshineModelParams {
     pub fn base() -> Self {
         Self {
             variant: ModelVariant::Base,
+            ..Default::default()
         }
     }
 
     /// Create params for a specific variant.
     pub fn variant(variant: ModelVariant) -> Self {
-        Self { variant }
+        Self {
+            variant,
+            ..Default::default()
+        }
     }
 }
 
@@ -166,12 +177,12 @@ impl TranscriptionEngine for MoonshineEngine {
         self.unload_model();
 
         self.variant = params.variant;
-        self.model = Some(MoonshineModel::new(model_path, params.variant)?);
+        self.model = Some(MoonshineModel::new(model_path, params)?);
         self.loaded_model_path = Some(model_path.to_path_buf());
 
         log::info!(
             "Loaded Moonshine {:?} model from {:?}",
-            params.variant,
+            self.variant,
             model_path
         );
 
