@@ -539,13 +539,9 @@ pub fn add_punctuation(text: &str) -> String {
 /// Add punctuation to text using a specific punctuation model directory.
 ///
 /// `model_dir` should contain `model.int8.onnx` (or `model.onnx`) and `tokens.json`.
+/// The model handles text with or without existing punctuation — partial punctuation
+/// from ASR output (e.g. stray commas from breath pauses) is processed correctly.
 pub fn add_punctuation_with_model(text: &str, model_dir: &Path) -> String {
-    // Check if text already has punctuation
-    if has_punctuation(text) {
-        log::info!("Text already has punctuation, skipping");
-        return text.to_string();
-    }
-
     if let Ok(mut model) = PunctModel::new(model_dir) {
         // First add English spaces (for Sherpa output)
         let text_with_spaces = add_english_spaces(text);
@@ -580,30 +576,6 @@ fn is_punctuation(c: char) -> bool {
         c,
         '.' | ',' | '?' | '!' | ';' | ':' | '"' | '\'' | '(' | ')' | '[' | ']'
     )
-}
-
-/// Check if text already has punctuation (Chinese or English)
-fn has_punctuation(text: &str) -> bool {
-    // Check for Chinese punctuation
-    let chinese_punct = [
-        '，', '。', '？', '！', '、', '；', '：', '"', '"', '\'', '\'',
-    ];
-    for c in text.chars() {
-        if chinese_punct.contains(&c) {
-            return true;
-        }
-    }
-
-    // Check for English punctuation (at least one)
-    let mut has_eng_punct = false;
-    for c in text.chars() {
-        if is_punctuation(c) {
-            has_eng_punct = true;
-            break;
-        }
-    }
-
-    has_eng_punct
 }
 
 /// Add spaces between English words
