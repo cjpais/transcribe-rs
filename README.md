@@ -1,16 +1,16 @@
 # transcribe-rs
 
-A Rust library for audio transcription supporting multiple engines including Whisper, Parakeet, Moonshine, and SenseVoice.
+A Rust library for audio transcription supporting multiple engines including Whisper, Parakeet, Moonshine, SenseVoice, and GigaAM.
 
 This library was extracted from the [Handy](https://github.com/cjpais/handy) project to help other developers integrate transcription capabilities into their applications. We hope to support additional ASR models in the future and may expand to include features like microphone input and real-time transcription.
 
 ## Features
 
-- **Multiple Transcription Engines**: Support for Whisper, Whisperfile, Parakeet, Moonshine, and SenseVoice models
+- **Multiple Transcription Engines**: Support for Whisper, Whisperfile, Parakeet, Moonshine, SenseVoice, and GigaAM models
 - **Cross-platform**: Works on macOS, Windows, and Linux with optimized backends
 - **Hardware Acceleration**: Metal on macOS, Vulkan on Windows/Linux
 - **Flexible API**: Common interface for different transcription engines
-- **Multi-language Support**: SenseVoice supports Chinese, English, Japanese, Korean, and Cantonese; Moonshine supports English, Arabic, Chinese, Japanese, Korean, Ukrainian, Vietnamese, and Spanish
+- **Multi-language Support**: SenseVoice supports Chinese, English, Japanese, Korean, and Cantonese; Moonshine supports English, Arabic, Chinese, Japanese, Korean, Ukrainian, Vietnamese, and Spanish; GigaAM supports Russian with punctuation and Latin characters
 - **Opt-in Dependencies**: Only compile and link the engines you need via Cargo features
 
 ## Installation
@@ -34,6 +34,7 @@ transcribe-rs = { version = "0.1.5", features = ["all"] }
 | `parakeet` | NVIDIA Parakeet (ONNX) | ort, ndarray |
 | `moonshine` | UsefulSensors Moonshine (ONNX) | ort, ndarray, tokenizers |
 | `sense_voice` | FunASR SenseVoice (ONNX) | ort, ndarray, rustfft, base64 |
+| `gigaam` | SberDevices GigaAM v3 (ONNX) | ort, ndarray, rustfft |
 | `whisperfile` | Mozilla whisperfile server wrapper | reqwest |
 | `openai` | OpenAI API (remote) | async-openai, tokio |
 | `all` | All engines enabled | All of the above |
@@ -101,6 +102,10 @@ models/sense-voice/
 
 SenseVoice models are available from [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models). Each download includes the ONNX model and tokens file. Models with `int8` in the name contain `model.int8.onnx`; the non-int8 version contains `model.onnx`.
 
+**GigaAM Model:**
+- Single ONNX file (e.g., `v3_e2e_ctc.int8.onnx`)
+- BPE vocabulary is embedded in the engine, no external tokens file needed
+
 **Audio Requirements:**
 - Format: WAV
 - Sample Rate: 16 kHz
@@ -119,6 +124,7 @@ SenseVoice models are available from [sherpa-onnx](https://github.com/k2-fsa/she
 - **SenseVoice**:
   - Pre-packaged int8 quantized model: https://blob.handy.computer/sense-voice-int8.tar.gz
   - Additional models: https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models
+- **GigaAM**: https://huggingface.co/istupakov/gigaam-v3-onnx/tree/main
 
 ## Usage
 
@@ -158,6 +164,17 @@ engine.load_model_with_params(
     &PathBuf::from("path/to/model"),
     SenseVoiceModelParams::int8(),
 )?;
+let result = engine.transcribe_file(&PathBuf::from("audio.wav"), None)?;
+println!("{}", result.text);
+```
+
+### GigaAM Engine
+```rust
+use transcribe_rs::{TranscriptionEngine, engines::gigaam::GigaAMEngine};
+use std::path::PathBuf;
+
+let mut engine = GigaAMEngine::new();
+engine.load_model(&PathBuf::from("models/v3_e2e_ctc.int8.onnx"))?;
 let result = engine.transcribe_file(&PathBuf::from("audio.wav"), None)?;
 println!("{}", result.text);
 ```
@@ -243,6 +260,13 @@ println!("{}", result.text);
    cd ..
    ```
 
+   **For GigaAM:**
+   ```bash
+   cd models
+   wget https://huggingface.co/istupakov/gigaam-v3-onnx/resolve/main/v3_e2e_ctc.int8.onnx
+   cd ..
+   ```
+
 ### Running the Examples
 
 Each engine has its own example file. You must specify the required feature when running:
@@ -262,6 +286,9 @@ cargo run --example moonshine --features moonshine
 
 # Run SenseVoice example (add --int8 for quantized model)
 cargo run --example sense_voice --features sense_voice -- --int8 models/sense-voice-int8 samples/audio.wav
+
+# Run GigaAM example
+cargo run --example gigaam --features gigaam
 
 # Run OpenAI API example
 cargo run --example openai --features openai
@@ -285,6 +312,7 @@ cargo test --features parakeet
 cargo test --features whisper
 cargo test --features moonshine
 cargo test --features sense_voice
+cargo test --features gigaam
 cargo test --features whisperfile
 cargo test --features openai
 
@@ -376,6 +404,20 @@ cd ..
 cargo test --features sense_voice
 ```
 
+**For GigaAM tests:**
+
+Download the GigaAM v3 int8 model:
+```bash
+cd models
+wget https://huggingface.co/istupakov/gigaam-v3-onnx/resolve/main/v3_e2e_ctc.int8.onnx
+cd ..
+
+# Run tests
+cargo test --features gigaam
+```
+
+GigaAM tests require a Russian audio sample at `samples/russian.wav`. Tests will skip if model or audio files are not found.
+
 **For Whisper tests:**
 
 Whisper tests will skip if models are not available in the expected locations.
@@ -388,3 +430,4 @@ Whisper tests will skip if models are not available in the expected locations.
 - Big thanks to [jart](http://github.com/jart) for [llamafile](https://github.com/mozilla-ai/llamafile). Thanks to [Mozilla AI](https://github.com/mozilla-ai) for maintaining the [Whisperfile](https://github.com/cjpais/whisperfile) implementation
 - Thanks to [UsefulSensors](https://github.com/usefulsensors) for the Moonshine models and ONNX exports
 - Thanks to [FunASR](https://github.com/modelscope/FunASR) for the SenseVoice model and [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) for the ONNX exports
+- Thanks to [SberDevices](https://github.com/salute-developers/GigaAM) for the GigaAM model and [istupakov](https://github.com/istupakov/onnx-asr) for the ONNX exports

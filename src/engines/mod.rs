@@ -10,6 +10,8 @@
 //! - `whisper` - OpenAI's Whisper (GGML format)
 //! - `parakeet` - NVIDIA NeMo Parakeet (ONNX format)
 //! - `moonshine` - Moonshine lightweight models (ONNX format)
+//! - `sense_voice` - FunASR SenseVoice (ONNX format)
+//! - `gigaam` - SberDevices GigaAM v3 (ONNX format)
 //! - `whisperfile` - Mozilla whisperfile server wrapper
 //!
 //! # Example
@@ -19,6 +21,8 @@
 //! transcribe-rs = { version = "0.2", features = ["parakeet", "whisper"] }
 //! ```
 
+#[cfg(feature = "gigaam")]
+pub mod gigaam;
 #[cfg(feature = "moonshine")]
 pub mod moonshine;
 #[cfg(feature = "parakeet")]
