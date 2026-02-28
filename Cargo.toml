@@ -108,6 +108,14 @@ name = "paraformer_punct"
 required-features = ["paraformer", "punct"]
 
 [[example]]
+name = "zipformer_ctc"
+required-features = ["zipformer-ctc"]
+
+[[example]]
+name = "zipformer_transducer"
+required-features = ["zipformer-transducer"]
+
+[[example]]
 name = "whisperfile"
 required-features = ["whisperfile"]
 
