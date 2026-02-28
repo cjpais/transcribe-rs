@@ -45,24 +45,9 @@ impl Drop for ZipformerCtcModel {
 
 impl ZipformerCtcModel {
     pub fn new(model_dir: &Path, quantized: bool) -> Result<Self, ZipformerCtcError> {
-        let model_path = if quantized {
-            let int8_path = model_dir.join("model.int8.onnx");
-            if int8_path.exists() {
-                int8_path
-            } else {
-                log::warn!("Quantized model not found, falling back to model.onnx");
-                model_dir.join("model.onnx")
-            }
-        } else {
-            model_dir.join("model.onnx")
-        };
+        let model_path = Self::find_model_file(model_dir, quantized)?;
         let tokens_path = model_dir.join("tokens.txt");
 
-        if !model_path.exists() {
-            return Err(ZipformerCtcError::ModelNotFound(
-                model_path.display().to_string(),
-            ));
-        }
         if !tokens_path.exists() {
             return Err(ZipformerCtcError::TokensNotFound(
                 tokens_path.display().to_string(),
@@ -82,6 +67,18 @@ impl ZipformerCtcModel {
         if input_names.is_empty() || output_names.is_empty() {
             return Err(ZipformerCtcError::InvalidModel(
                 "Model has no inputs or outputs".to_string(),
+            ));
+        }
+
+        // Detect streaming models: they have cached_* state inputs (>2 inputs)
+        // and fixed time dimension. These require a dedicated streaming engine.
+        let has_cached_inputs = input_names.iter().any(|n| n.starts_with("cached_"));
+        if has_cached_inputs {
+            return Err(ZipformerCtcError::InvalidModel(
+                "This is a streaming model (has cached_* state inputs). \
+                 Streaming models require fixed-size chunk input and state management. \
+                 Please use an offline (non-streaming) model instead."
+                    .to_string(),
             ));
         }
 
@@ -144,6 +141,58 @@ impl ZipformerCtcModel {
             log_probs_output_name,
             log_probs_len_output_name,
         })
+    }
+
+    /// Find the CTC model ONNX file, trying exact names first then globbing.
+    fn find_model_file(
+        model_dir: &Path,
+        quantized: bool,
+    ) -> Result<std::path::PathBuf, ZipformerCtcError> {
+        // Try exact names first
+        if quantized {
+            let int8_path = model_dir.join("model.int8.onnx");
+            if int8_path.exists() {
+                return Ok(int8_path);
+            }
+        }
+        let fp32_path = model_dir.join("model.onnx");
+        if fp32_path.exists() {
+            return Ok(fp32_path);
+        }
+
+        // Fallback: scan directory for any .onnx file
+        if let Ok(entries) = std::fs::read_dir(model_dir) {
+            let onnx_files: Vec<_> = entries
+                .filter_map(|e| e.ok())
+                .filter(|e| {
+                    e.path()
+                        .extension()
+                        .map(|ext| ext == "onnx")
+                        .unwrap_or(false)
+                })
+                .collect();
+
+            // Prefer int8 variant when quantized, non-int8 otherwise
+            let preferred = onnx_files.iter().find(|e| {
+                let name = e.file_name().to_string_lossy().to_string();
+                if quantized {
+                    name.contains("int8")
+                } else {
+                    !name.contains("int8")
+                }
+            });
+
+            if let Some(entry) = preferred.or_else(|| onnx_files.first()) {
+                let path = entry.path();
+                log::info!("Found model file via fallback: {:?}", path);
+                return Ok(path);
+            }
+        }
+
+        Err(ZipformerCtcError::ModelNotFound(format!(
+            "No .onnx model found in {}",
+            model_dir.display()
+        )))
     }
 
     fn init_session(path: &Path) -> Result<Session, ZipformerCtcError> {

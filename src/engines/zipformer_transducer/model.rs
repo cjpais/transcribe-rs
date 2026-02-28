@@ -76,8 +76,19 @@ impl ZipformerTransducerModel {
 
         let symbol_table = SymbolTable::load_autodetect(&tokens_path)?;
 
-        // Detect encoder I/O names
+        // Detect streaming models: they have cached_* state inputs in the encoder
         let enc_inputs: Vec<String> = encoder_session.inputs.iter().map(|i| i.name.clone()).collect();
+        let has_cached_inputs = enc_inputs.iter().any(|n| n.starts_with("cached_"));
+        if has_cached_inputs {
+            return Err(ZipformerTransducerError::ModelNotFound(
+                "This is a streaming model (encoder has cached_* state inputs). \
+                 Streaming models require fixed-size chunk input and state management. \
+                 Please use an offline (non-streaming) model instead."
+                    .to_string(),
+            ));
+        }
+
+        // Detect encoder I/O names
         let enc_outputs: Vec<String> = encoder_session.outputs.iter().map(|o| o.name.clone()).collect();
 
         let enc_x_name = Self::find_name(&enc_inputs, &["x"])
