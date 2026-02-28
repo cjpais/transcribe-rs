@@ -122,6 +122,7 @@ impl SymbolTable {
     ///
     /// Icefall BBPE tokens use a byte-to-unicode mapping (PRINTABLE_BASE_CHARS).
     /// We collect all token chars, map each back to a byte, then interpret as UTF-8.
+    /// Post-processes to remove spaces between CJK characters and lowercase English.
     fn decode_bbpe(&self, token_ids: &[i32]) -> String {
         let mut raw_bytes = Vec::new();
 
@@ -143,10 +144,11 @@ impl SymbolTable {
         }
 
         let text = String::from_utf8_lossy(&raw_bytes);
-        text.trim().to_string()
+        normalize_text(text.trim())
     }
 
     /// Decode standard BPE/sentencepiece tokens (literal UTF-8 strings).
+    /// Post-processes to remove spaces between CJK characters and lowercase English.
     fn decode_bpe(&self, token_ids: &[i32]) -> String {
         let mut text = String::new();
 
@@ -161,8 +163,45 @@ impl SymbolTable {
             text.push_str(&sym.replace('\u{2581}', " "));
         }
 
-        text.trim().to_string()
+        normalize_text(text.trim())
     }
+}
+
+// ============== Text Normalization ==============
+
+fn is_cjk(c: char) -> bool {
+    matches!(c,
+        '\u{4E00}'..='\u{9FFF}' |   // CJK Unified Ideographs
+        '\u{3400}'..='\u{4DBF}' |   // CJK Extension A
+        '\u{F900}'..='\u{FAFF}' |   // CJK Compatibility Ideographs
+        '\u{2E80}'..='\u{2EFF}' |   // CJK Radicals Supplement
+        '\u{3000}'..='\u{303F}' |   // CJK Symbols and Punctuation
+        '\u{FF00}'..='\u{FFEF}'     // Fullwidth Forms
+    )
+}
+
+/// Normalize decoded text:
+/// - Remove spaces between CJK characters
+/// - Lowercase English text
+fn normalize_text(text: &str) -> String {
+    let text = text.to_lowercase();
+    let chars: Vec<char> = text.chars().collect();
+    let mut result = String::with_capacity(text.len());
+
+    for i in 0..chars.len() {
+        let c = chars[i];
+        if c == ' ' {
+            // Skip space if between two CJK characters
+            let prev_cjk = i > 0 && is_cjk(chars[i - 1]);
+            let next_cjk = i + 1 < chars.len() && is_cjk(chars[i + 1]);
+            if prev_cjk && next_cjk {
+                continue;
+            }
+        }
+        result.push(c);
+    }
+
+    result
 }
 
 // ============== Icefall BBPE byte mapping ==============
