@@ -78,6 +78,7 @@ impl PunctType {
 pub struct PunctModel {
     session: Session,
     token2id: HashMap<String, i32>,
+    #[allow(dead_code)]
     id2token: Vec<String>,
     unk_id: i32,
     input_name: String,
