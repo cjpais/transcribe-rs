@@ -23,8 +23,12 @@ fn test_gigaam_transcribe() -> Result<(), Box<dyn std::error::Error>> {
 
     let result = engine.transcribe_file(&wav_path, None)?;
 
-    assert!(!result.text.is_empty(), "Transcription should not be empty");
-    println!("Transcription: {}", result.text);
+    let expected = "Проверка связи.";
+    assert_eq!(
+        result.text, expected,
+        "\nExpected: '{}'\nActual: '{}'",
+        expected, result.text
+    );
 
     engine.unload_model();
 
