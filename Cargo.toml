@@ -1,6 +1,6 @@
 [package]
 name = "transcribe-rs"
-version = "0.2.6"
+version = "0.2.7"
 edition = "2021"
 description = "A simple library to help you transcribe audio"
 license = "MIT"
@@ -24,7 +24,7 @@ whisperfile = ["dep:ureq"]
 openai = ["dep:async-openai", "dep:tokio", "dep:async-trait"]
 
 # Post-processing
-itn = ["dep:nemo-text-processing"]
+# itn = ["dep:nemo-text-processing"]  # TODO: re-enable when nemo-text-processing is published to crates.io
 punct = ["dep:ort", "dep:ndarray"]
 
 # Convenience
@@ -58,7 +58,7 @@ base64 = { version = "0.22", optional = true }
 ureq = { version = "3", optional = true }
 
 # ITN (Inverse Text Normalization)
-nemo-text-processing = { version = "0.1.0", git = "https://github.com/FluidInference/text-processing-rs", optional = true }
+# nemo-text-processing = { version = "0.1.0", git = "https://github.com/FluidInference/text-processing-rs", optional = true }  # TODO: re-enable when published to crates.io
 
 # OpenAI
 tokio = { version = "1.47.1", features = ["rt-multi-thread"], optional = true }
