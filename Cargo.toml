@@ -21,7 +21,7 @@ whisperfile = ["dep:ureq"]
 openai = ["dep:async-openai", "dep:tokio", "dep:async-trait"]
 
 # Post-processing
-itn = ["dep:nemo-text-processing"]
+# itn = ["dep:nemo-text-processing"]  # TODO: re-enable when nemo-text-processing is published to crates.io
 
 # Convenience
 all = ["whisper", "parakeet", "moonshine", "sense_voice", "gigaam", "whisperfile", "openai"]
@@ -54,7 +54,7 @@ base64 = { version = "0.22", optional = true }
 ureq = { version = "3", optional = true }
 
 # ITN (Inverse Text Normalization)
-nemo-text-processing = { version = "0.1.0", git = "https://github.com/FluidInference/text-processing-rs", optional = true }
+# nemo-text-processing = { version = "0.1.0", git = "https://github.com/FluidInference/text-processing-rs", optional = true }  # TODO: re-enable when published to crates.io
 
 # OpenAI
 tokio = { version = "1.47.1", features = ["rt-multi-thread"], optional = true }
