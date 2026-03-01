@@ -1,12 +1,8 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use transcribe_rs::{
-    engines::parakeet::{
-        ParakeetEngine, ParakeetInferenceParams, ParakeetModelParams, TimestampGranularity,
-    },
-    TranscriptionEngine,
-};
+use transcribe_rs::onnx::{Engine, InferenceParams, Model, TimestampGranularity};
+use transcribe_rs::TranscriptionEngine;
 
 fn get_audio_duration(path: &PathBuf) -> Result<f64, Box<dyn std::error::Error>> {
     let reader = hound::WavReader::open(path)?;
@@ -16,14 +12,12 @@ fn get_audio_duration(path: &PathBuf) -> Result<f64, Box<dyn std::error::Error>>
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize logger
     env_logger::init();
 
-    let mut engine = ParakeetEngine::new();
+    let mut engine = Engine::new();
     let model_path = PathBuf::from("models/parakeet-tdt-0.6b-v3-int8");
     let wav_path = PathBuf::from("samples/dots.wav");
 
-    // Get audio duration
     let audio_duration = get_audio_duration(&wav_path)?;
     println!("Audio duration: {:.2}s", audio_duration);
 
@@ -31,16 +25,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Loading model: {:?}", model_path);
 
     let load_start = Instant::now();
-    engine.load_model_with_params(&model_path, ParakeetModelParams::int8())?;
+    engine.load(&model_path, Model::parakeet_int8())?;
     let load_duration = load_start.elapsed();
     println!("Model loaded in {:.2?}", load_duration);
 
     println!("Transcribing file: {:?}", wav_path);
     let transcribe_start = Instant::now();
 
-    // Configure Parakeet parameters with timestamp granularity
-    let params = ParakeetInferenceParams {
-        timestamp_granularity: TimestampGranularity::Segment, // Options: Token, Word, Segment
+    let params = InferenceParams {
+        timestamp_granularity: Some(TimestampGranularity::Segment),
         ..Default::default()
     };
 
@@ -48,7 +41,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let transcribe_duration = transcribe_start.elapsed();
     println!("Transcription completed in {:.2?}", transcribe_duration);
 
-    // Calculate real-time speedup factor
     let speedup_factor = audio_duration / transcribe_duration.as_secs_f64();
     println!(
         "Real-time speedup: {:.2}x faster than real-time",

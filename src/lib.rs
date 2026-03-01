@@ -1,46 +1,37 @@
 //! # transcribe-rs
 //!
 //! A Rust library providing unified transcription capabilities using multiple speech recognition engines.
-//! Currently supports Whisper and Parakeet (NeMo) models for accurate speech-to-text transcription.
 //!
 //! ## Features
 //!
-//! - **Multiple Engines**: Support for both Whisper and Parakeet transcription engines
-//! - **Flexible Model Loading**: Load models with custom parameters (quantization, etc.)
-//! - **Timestamped Results**: Get detailed timing information for transcribed segments
-//! - **Audio Processing**: Built-in WAV file processing with proper format validation
-//! - **Unified API**: Common trait-based interface for all transcription engines
-//!
-//! ## Model Format Requirements
-//!
-//! - **Whisper**: Expects a single GGML format file (e.g., `whisper-medium-q4_1.bin`)
-//! - **Parakeet**: Expects a directory containing the model files (e.g., `parakeet-v0.3/`)
+//! - **ONNX Models**: SenseVoice, GigaAM, Parakeet, Moonshine via unified `onnx::Engine`
+//! - **Whisper**: OpenAI Whisper via GGML (requires `whisper` feature)
+//! - **Remote**: OpenAI API (requires `openai` feature)
+//! - **Timestamped Results**: Detailed timing information for transcribed segments
+//! - **Unified API**: Common trait-based interface for all engines
 //!
 //! ## Quick Start
 //!
 //! ```toml
 //! [dependencies]
-//! transcribe-rs = { version = "0.2", features = ["whisper"] }
+//! transcribe-rs = { version = "0.2", features = ["onnx"] }
 //! ```
 //!
 //! ```ignore
 //! use std::path::PathBuf;
-//! use transcribe_rs::{engines::whisper::WhisperEngine, TranscriptionEngine};
+//! use transcribe_rs::onnx::{Engine, Model, InferenceParams, Language};
 //!
-//! let mut engine = WhisperEngine::new();
-//! engine.load_model(&PathBuf::from("models/whisper-medium-q4_1.bin"))?;
+//! let mut engine = Engine::new();
+//! engine.load(&PathBuf::from("models/sense-voice"), Model::sense_voice_int8())?;
 //!
-//! let result = engine.transcribe_file(&PathBuf::from("audio.wav"), None)?;
+//! let result = engine.transcribe_file(
+//!     &PathBuf::from("audio.wav"),
+//!     Some(InferenceParams {
+//!         language: Some(Language::English),
+//!         ..Default::default()
+//!     }),
+//! )?;
 //! println!("Transcription: {}", result.text);
-//!
-//! if let Some(segments) = result.segments {
-//!     for segment in segments {
-//!         println!(
-//!             "[{:.2}s - {:.2}s]: {}",
-//!             segment.start, segment.end, segment.text
-//!         );
-//!     }
-//! }
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
@@ -54,6 +45,9 @@
 
 pub mod audio;
 pub mod engines;
+
+#[cfg(feature = "onnx")]
+pub mod onnx;
 
 #[cfg(feature = "openai")]
 pub mod remote;
@@ -100,34 +94,15 @@ pub struct TranscriptionSegment {
 ///
 /// # Examples
 ///
-/// ## Using Whisper Engine (requires `whisper` feature)
+/// ## Using ONNX Engine (requires `onnx` feature)
 ///
 /// ```ignore
 /// use std::path::PathBuf;
-/// use transcribe_rs::{engines::whisper::WhisperEngine, TranscriptionEngine};
+/// use transcribe_rs::onnx::{Engine, Model};
+/// use transcribe_rs::TranscriptionEngine;
 ///
-/// let mut engine = WhisperEngine::new();
-/// engine.load_model(&PathBuf::from("models/whisper-medium-q4_1.bin"))?;
-///
-/// let result = engine.transcribe_file(&PathBuf::from("audio.wav"), None)?;
-/// println!("Transcription: {}", result.text);
-/// # Ok::<(), Box<dyn std::error::Error>>(())
-/// ```
-///
-/// ## Using Parakeet Engine (requires `parakeet` feature)
-///
-/// ```ignore
-/// use std::path::PathBuf;
-/// use transcribe_rs::{
-///     engines::parakeet::{ParakeetEngine, ParakeetModelParams},
-///     TranscriptionEngine,
-/// };
-///
-/// let mut engine = ParakeetEngine::new();
-/// engine.load_model_with_params(
-///     &PathBuf::from("models/parakeet-v0.3"),
-///     ParakeetModelParams::int8(),
-/// )?;
+/// let mut engine = Engine::new();
+/// engine.load(&PathBuf::from("models/sense-voice"), Model::sense_voice_int8())?;
 ///
 /// let result = engine.transcribe_file(&PathBuf::from("audio.wav"), None)?;
 /// println!("Transcription: {}", result.text);

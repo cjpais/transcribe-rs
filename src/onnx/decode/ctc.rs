@@ -30,7 +30,6 @@ pub fn ctc_greedy_decode(
         let mut prev_id: i64 = -1;
 
         for t in 0..num_frames {
-            // Argmax across vocabulary dimension
             let mut max_val = f32::NEG_INFINITY;
             let mut max_id: i64 = 0;
             for v in 0..vocab_size {
@@ -41,7 +40,6 @@ pub fn ctc_greedy_decode(
                 }
             }
 
-            // Skip blanks and consecutive repeats
             if max_id != blank_id && max_id != prev_id {
                 result.tokens.push(max_id);
                 result.timestamps.push(t as i32);

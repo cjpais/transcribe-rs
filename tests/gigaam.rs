@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
-use transcribe_rs::{engines::gigaam::GigaAMEngine, TranscriptionEngine};
+use transcribe_rs::onnx::{Engine, Model};
+use transcribe_rs::TranscriptionEngine;
 
 #[test]
 fn test_gigaam_transcribe() -> Result<(), Box<dyn std::error::Error>> {
@@ -18,8 +19,8 @@ fn test_gigaam_transcribe() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    let mut engine = GigaAMEngine::new();
-    engine.load_model(&model_path)?;
+    let mut engine = Engine::new();
+    engine.load(&model_path, Model::gigaam())?;
 
     let result = engine.transcribe_file(&wav_path, None)?;
 

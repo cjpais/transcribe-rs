@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use transcribe_rs::{engines::gigaam::GigaAMEngine, TranscriptionEngine};
+use transcribe_rs::onnx::{Engine, Model};
+use transcribe_rs::TranscriptionEngine;
 
 fn get_audio_duration(path: &PathBuf) -> Result<f64, Box<dyn std::error::Error>> {
     let reader = hound::WavReader::open(path)?;
@@ -24,7 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         positional
             .first()
             .map(|s| s.as_str())
-            .unwrap_or("models/v3_e2e_ctc.int8.onnx"),
+            .unwrap_or("models/giga-am-v3.int8.onnx"),
     );
     let wav_path = PathBuf::from(
         positional
@@ -39,9 +40,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Using GigaAM v3 engine");
     println!("Loading model: {:?}", model_path);
 
-    let mut engine = GigaAMEngine::new();
+    let mut engine = Engine::new();
     let load_start = Instant::now();
-    engine.load_model(&model_path)?;
+    engine.load(&model_path, Model::gigaam())?;
     let load_duration = load_start.elapsed();
     println!("Model loaded in {:.2?}", load_duration);
 

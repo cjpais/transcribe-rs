@@ -1,10 +1,8 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use transcribe_rs::{
-    engines::sense_voice::{SenseVoiceEngine, SenseVoiceModelParams},
-    TranscriptionEngine,
-};
+use transcribe_rs::onnx::{Engine, InferenceParams, Language, Model};
+use transcribe_rs::TranscriptionEngine;
 
 fn get_audio_duration(path: &PathBuf) -> Result<f64, Box<dyn std::error::Error>> {
     let reader = hound::WavReader::open(path)?;
@@ -28,7 +26,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         positional
             .first()
             .map(|s| s.as_str())
-            .unwrap_or("models/sense-voice"),
+            .unwrap_or("models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"),
     );
     let wav_path = PathBuf::from(
         positional
@@ -37,10 +35,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .unwrap_or("samples/dots.wav"),
     );
 
-    let model_params = if int8 {
-        SenseVoiceModelParams::int8()
+    let model = if int8 {
+        Model::sense_voice_int8()
     } else {
-        SenseVoiceModelParams::fp32()
+        Model::sense_voice()
     };
 
     let audio_duration = get_audio_duration(&wav_path)?;
@@ -53,16 +51,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if int8 { "int8" } else { "fp32" }
     );
 
-    let mut engine = SenseVoiceEngine::new();
+    let mut engine = Engine::new();
     let load_start = Instant::now();
-    engine.load_model_with_params(&model_path, model_params)?;
+    engine.load(&model_path, model)?;
     let load_duration = load_start.elapsed();
     println!("Model loaded in {:.2?}", load_duration);
 
     println!("Transcribing file: {:?}", wav_path);
     let transcribe_start = Instant::now();
 
-    let result = engine.transcribe_file(&wav_path, None)?;
+    let result = engine.transcribe_file(
+        &wav_path,
+        Some(InferenceParams {
+            language: Some(Language::English),
+            ..Default::default()
+        }),
+    )?;
     let transcribe_duration = transcribe_start.elapsed();
     println!("Transcription completed in {:.2?}", transcribe_duration);
 

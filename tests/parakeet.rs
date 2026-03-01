@@ -1,21 +1,18 @@
 use std::path::PathBuf;
-use transcribe_rs::engines::parakeet::{ParakeetEngine, ParakeetModelParams};
+use transcribe_rs::onnx::{Engine, Model};
 use transcribe_rs::TranscriptionEngine;
 
 #[test]
 fn test_jfk_transcription() {
-    let mut engine = ParakeetEngine::new();
+    let mut engine = Engine::new();
 
-    // Load the model
     let model_path = PathBuf::from("models/parakeet-tdt-0.6b-v3-int8");
     engine
-        .load_model_with_params(&model_path, ParakeetModelParams::int8())
+        .load(&model_path, Model::parakeet_int8())
         .expect("Failed to load model");
 
-    // Load the JFK audio file
     let audio_path = PathBuf::from("samples/jfk.wav");
 
-    // Transcribe with default params
     let result = engine
         .transcribe_file(&audio_path, None)
         .expect("Failed to transcribe");
@@ -32,11 +29,11 @@ fn test_jfk_transcription() {
 
 #[test]
 fn test_timestamps() {
-    let mut engine = ParakeetEngine::new();
+    let mut engine = Engine::new();
 
     let model_path = PathBuf::from("models/parakeet-tdt-0.6b-v3-int8");
     engine
-        .load_model_with_params(&model_path, ParakeetModelParams::int8())
+        .load(&model_path, Model::parakeet_int8())
         .expect("Failed to load model");
 
     let audio_path = PathBuf::from("samples/jfk.wav");
@@ -45,7 +42,6 @@ fn test_timestamps() {
         .transcribe_file(&audio_path, None)
         .expect("Failed to transcribe");
 
-    // Verify segments are returned
     assert!(
         result.segments.is_some(),
         "Transcription should return segments"
@@ -54,16 +50,13 @@ fn test_timestamps() {
     let segments = result.segments.unwrap();
     assert!(!segments.is_empty(), "Segments should not be empty");
 
-    // Parakeet returns token-level segments, so we expect many segments
     assert!(
         segments.len() > 10,
         "Parakeet should return multiple token-level segments, got {}",
         segments.len()
     );
 
-    // Verify timestamp properties
     for (i, segment) in segments.iter().enumerate() {
-        // Start time should be non-negative
         assert!(
             segment.start >= 0.0,
             "Segment {} start time should be non-negative, got {}",
@@ -71,7 +64,6 @@ fn test_timestamps() {
             segment.start
         );
 
-        // End time should be >= start time (can be equal for very short tokens)
         assert!(
             segment.end >= segment.start,
             "Segment {} end time ({}) should be >= start time ({})",
@@ -80,7 +72,6 @@ fn test_timestamps() {
             segment.start
         );
 
-        // Segment should have text
         assert!(
             !segment.text.is_empty(),
             "Segment {} should have non-empty text",
@@ -88,7 +79,6 @@ fn test_timestamps() {
         );
     }
 
-    // Verify segments are in chronological order
     for i in 1..segments.len() {
         assert!(
             segments[i].start >= segments[i - 1].start,
@@ -100,7 +90,6 @@ fn test_timestamps() {
         );
     }
 
-    // Verify the audio duration is reasonable (JFK clip is ~11 seconds)
     let last_segment = segments.last().unwrap();
     assert!(
         last_segment.end > 10.0 && last_segment.end < 15.0,
@@ -108,7 +97,6 @@ fn test_timestamps() {
         last_segment.end
     );
 
-    // Verify first segment starts near the beginning
     let first_segment = segments.first().unwrap();
     assert!(
         first_segment.start < 1.0,

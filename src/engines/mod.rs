@@ -1,34 +1,15 @@
 //! Speech recognition engines for transcription.
 //!
-//! This module contains implementations of different speech recognition engines
-//! that can be used for audio transcription. Each engine has its own requirements
-//! for model formats and provides different capabilities.
+//! This module contains implementations of non-ONNX speech recognition engines.
+//! For ONNX-based models (SenseVoice, GigaAM, Parakeet, Moonshine), see the `onnx` module.
 //!
 //! # Available Engines
 //!
 //! Enable engines via Cargo features:
+//! - `onnx` - All ONNX-based models (SenseVoice, GigaAM, Parakeet, Moonshine)
 //! - `whisper` - OpenAI's Whisper (GGML format)
-//! - `parakeet` - NVIDIA NeMo Parakeet (ONNX format)
-//! - `moonshine` - Moonshine lightweight models (ONNX format)
-//! - `sense_voice` - FunASR SenseVoice (ONNX format)
-//! - `gigaam` - SberDevices GigaAM v3 (ONNX format)
 //! - `whisperfile` - Mozilla whisperfile server wrapper
-//!
-//! # Example
-//!
-//! ```toml
-//! [dependencies]
-//! transcribe-rs = { version = "0.2", features = ["parakeet", "whisper"] }
-//! ```
 
-#[cfg(feature = "gigaam")]
-pub mod gigaam;
-#[cfg(feature = "moonshine")]
-pub mod moonshine;
-#[cfg(feature = "parakeet")]
-pub mod parakeet;
-#[cfg(feature = "sense_voice")]
-pub mod sense_voice;
 #[cfg(feature = "whisper")]
 pub mod whisper;
 #[cfg(feature = "whisperfile")]
