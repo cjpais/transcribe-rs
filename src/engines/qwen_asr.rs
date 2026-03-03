@@ -10,6 +10,7 @@
 //! Qwen3-ASR expects a model directory containing:
 //! - `model*.safetensors` - Model weight files
 //! - `vocab.json` - Tokenizer vocabulary
+//! - `merges.txt` - Tokenizer merge rules
 //!
 //! Available models:
 //! - `Qwen/Qwen3-ASR-0.6B` (smaller, faster)
@@ -196,14 +197,17 @@ impl TranscriptionEngine for QwenAsrEngine {
                 .map_err(|()| QwenAsrError::InvalidLanguage(language.clone()))?;
         } else {
             // Reset to auto-detection
-            let _ = ctx.set_force_language("");
+            ctx.set_force_language("")
+                .map_err(|()| QwenAsrError::TranscriptionFailed)?;
         }
 
         // Apply prompt setting
         if let Some(ref prompt) = inference_params.prompt {
-            let _ = ctx.set_prompt(prompt);
+            ctx.set_prompt(prompt)
+                .map_err(|()| QwenAsrError::TranscriptionFailed)?;
         } else {
-            let _ = ctx.set_prompt("");
+            ctx.set_prompt("")
+                .map_err(|()| QwenAsrError::TranscriptionFailed)?;
         }
 
         debug!("Transcribing {} samples with Qwen ASR", samples.len());

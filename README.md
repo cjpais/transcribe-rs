@@ -111,7 +111,8 @@ SenseVoice models are available from [sherpa-onnx](https://github.com/k2-fsa/she
 ```
 models/qwen3-asr-0.6b/
 ├── model*.safetensors          # Model weight files
-└── vocab.json                  # Tokenizer vocabulary
+├── vocab.json                  # Tokenizer vocabulary
+└── merges.txt                  # Tokenizer merge rules
 ```
 
 Qwen3-ASR model variants:

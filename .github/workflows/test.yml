@@ -136,9 +136,9 @@ jobs:
         run: |
           mkdir -p models/qwen3-asr-0.6b
           cd models/qwen3-asr-0.6b
-          curl -sLO https://huggingface.co/Qwen/Qwen3-ASR-0.6B/resolve/main/model.safetensors
-          curl -sLO https://huggingface.co/Qwen/Qwen3-ASR-0.6B/resolve/main/vocab.json
-          curl -sLO https://huggingface.co/Qwen/Qwen3-ASR-0.6B/resolve/main/merges.txt
+          curl -fsSLO https://huggingface.co/Qwen/Qwen3-ASR-0.6B/resolve/main/model.safetensors
+          curl -fsSLO https://huggingface.co/Qwen/Qwen3-ASR-0.6B/resolve/main/vocab.json
+          curl -fsSLO https://huggingface.co/Qwen/Qwen3-ASR-0.6B/resolve/main/merges.txt
 
       - name: Run Tests (Qwen ASR)
         run: cargo test --features qwen_asr --release
