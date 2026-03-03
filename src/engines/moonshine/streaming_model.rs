@@ -1,5 +1,4 @@
 use ndarray::{ArrayD, ArrayViewD, IxDyn};
-use ort::execution_providers::CPUExecutionProvider;
 use ort::inputs;
 use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
@@ -80,8 +79,11 @@ impl StreamingModel {
             builder = builder.with_intra_threads(num_threads)?;
         }
 
+        // Streaming uses CPU-only: small per-chunk sessions where GPU launch
+        // overhead exceeds any compute benefit, and the 5 sessions would
+        // compete for GPU memory with the batch model.
         let session = builder
-            .with_execution_providers([CPUExecutionProvider::default().build()])?
+            .with_execution_providers(crate::ort_providers::cpu_execution_providers())?
             .commit_from_file(&path)?;
 
         Ok(session)

@@ -7,8 +7,8 @@ This library was extracted from the [Handy](https://github.com/cjpais/handy) pro
 ## Features
 
 - **Multiple Transcription Engines**: Support for Whisper, Whisperfile, Parakeet, Moonshine, SenseVoice, and GigaAM models
-- **Cross-platform**: Works on macOS, Windows, and Linux with optimized backends
-- **Hardware Acceleration**: Metal on macOS, Vulkan on Windows/Linux
+- **Cross-platform**: Works on macOS, Windows, and Linux
+- **GPU Acceleration**: Optional GPU execution providers for ORT engines (DirectML, CUDA, CoreML, WebGPU)
 - **Flexible API**: Common interface for different transcription engines
 - **Multi-language Support**: SenseVoice supports Chinese, English, Japanese, Korean, and Cantonese; Moonshine supports English, Arabic, Chinese, Japanese, Korean, Ukrainian, Vietnamese, and Spanish; GigaAM supports Russian with punctuation and Latin characters
 - **Opt-in Dependencies**: Only compile and link the engines you need via Cargo features
@@ -39,7 +39,36 @@ transcribe-rs = { version = "0.1.5", features = ["all"] }
 | `openai` | OpenAI API (remote) | async-openai, tokio |
 | `all` | All engines enabled | All of the above |
 
-**Note**: By default, no features are enabled. You must explicitly choose which engines to include.
+**GPU Execution Providers** (optional, combine with engine features above):
+
+| Feature | Description | Dependencies |
+|---------|-------------|--------------|
+| `directml` | DirectML execution provider (Windows) | ort/directml |
+| `cuda` | CUDA execution provider (Linux) | ort/cuda |
+| `coreml` | CoreML execution provider (macOS) | ort/coreml |
+| `webgpu` | WebGPU execution provider (cross-platform) | ort/webgpu |
+
+**Note**: By default, no features are enabled. You must explicitly choose which engines to include. GPU features apply to ORT-based engines (Parakeet, Moonshine, SenseVoice, GigaAM). Whisper and Whisperfile use whisper.cpp and are unaffected. Without any GPU feature, all ORT engines run on CPU.
+
+## GPU Provider Selection
+
+The `GpuProvider` enum controls which execution provider ORT uses at runtime. Set it before creating any ORT sessions:
+
+```rust
+use transcribe_rs::{set_gpu_provider, get_gpu_provider, available_providers, GpuProvider};
+
+// Query which providers were compiled in
+let providers = available_providers(); // e.g. [Auto, CpuOnly, DirectMl]
+
+// Select a provider
+set_gpu_provider(GpuProvider::Auto);
+```
+
+| Variant | Behaviour |
+|---------|-----------|
+| `Auto` (default) | Tries all compiled-in GPU EPs, falls back to CPU |
+| `CpuOnly` | Forces CPU regardless of compiled features |
+| `DirectMl` / `Cuda` / `CoreMl` / `WebGpu` | Uses that EP with CPU fallback. Logs a warning and falls back to CPU if the feature was not compiled in |
 
 ## Parakeet Performance
 
