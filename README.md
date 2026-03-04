@@ -1,16 +1,16 @@
 # transcribe-rs
 
-A Rust library for audio transcription supporting multiple engines including Whisper, Parakeet, Moonshine, SenseVoice, and GigaAM.
+A Rust library for audio transcription supporting multiple engines including Whisper, Parakeet, Moonshine, SenseVoice, GigaAM, and Qwen3-ASR.
 
 This library was extracted from the [Handy](https://github.com/cjpais/handy) project to help other developers integrate transcription capabilities into their applications. We hope to support additional ASR models in the future and may expand to include features like microphone input and real-time transcription.
 
 ## Features
 
-- **Multiple Transcription Engines**: Support for Whisper, Whisperfile, Parakeet, Moonshine, SenseVoice, and GigaAM models
+- **Multiple Transcription Engines**: Support for Whisper, Whisperfile, Parakeet, Moonshine, SenseVoice, GigaAM, and Qwen3-ASR models
 - **Cross-platform**: Works on macOS, Windows, and Linux with optimized backends
 - **Hardware Acceleration**: Metal on macOS, Vulkan on Windows/Linux
 - **Flexible API**: Common interface for different transcription engines
-- **Multi-language Support**: SenseVoice supports Chinese, English, Japanese, Korean, and Cantonese; Moonshine supports English, Arabic, Chinese, Japanese, Korean, Ukrainian, Vietnamese, and Spanish; GigaAM supports Russian with punctuation and Latin characters
+- **Multi-language Support**: SenseVoice supports Chinese, English, Japanese, Korean, and Cantonese; Moonshine supports English, Arabic, Chinese, Japanese, Korean, Ukrainian, Vietnamese, and Spanish; GigaAM supports Russian with punctuation and Latin characters; Qwen3-ASR supports 30+ languages including Chinese, English, Japanese, Korean, Arabic, French, German, and more
 - **Opt-in Dependencies**: Only compile and link the engines you need via Cargo features
 
 ## Installation
@@ -36,6 +36,7 @@ transcribe-rs = { version = "0.1.5", features = ["all"] }
 | `sense_voice` | FunASR SenseVoice (ONNX) | ort, ndarray, rustfft, base64 |
 | `gigaam` | SberDevices GigaAM v3 (ONNX) | ort, ndarray, rustfft |
 | `whisperfile` | Mozilla whisperfile server wrapper | reqwest |
+| `qwen_asr` | Qwen3-ASR (CPU-only, SafeTensors) | qwen-asr |
 | `openai` | OpenAI API (remote) | async-openai, tokio |
 | `all` | All engines enabled | All of the above |
 
@@ -106,6 +107,20 @@ SenseVoice models are available from [sherpa-onnx](https://github.com/k2-fsa/she
 - Single ONNX file (e.g., `v3_e2e_ctc.int8.onnx`)
 - BPE vocabulary is embedded in the engine, no external tokens file needed
 
+**Qwen3-ASR Model Directory Structure:**
+```
+models/qwen3-asr-0.6b/
+├── model*.safetensors          # Model weight files
+├── vocab.json                  # Tokenizer vocabulary
+└── merges.txt                  # Tokenizer merge rules
+```
+
+Qwen3-ASR model variants:
+| Variant | Parameters | Description |
+|---------|-----------|-------------|
+| Qwen3-ASR-0.6B | 0.6B | Smaller, faster |
+| Qwen3-ASR-1.7B | 1.7B | Larger, more accurate |
+
 **Audio Requirements:**
 - Format: WAV
 - Sample Rate: 16 kHz
@@ -125,6 +140,7 @@ SenseVoice models are available from [sherpa-onnx](https://github.com/k2-fsa/she
   - Pre-packaged int8 quantized model: https://blob.handy.computer/sense-voice-int8.tar.gz
   - Additional models: https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models
 - **GigaAM**: https://huggingface.co/istupakov/gigaam-v3-onnx/tree/main
+- **Qwen3-ASR**: https://huggingface.co/Qwen/Qwen3-ASR-0.6B / https://huggingface.co/Qwen/Qwen3-ASR-1.7B
 
 ## Usage
 
@@ -175,6 +191,17 @@ use std::path::PathBuf;
 
 let mut engine = GigaAMEngine::new();
 engine.load_model(&PathBuf::from("models/v3_e2e_ctc.int8.onnx"))?;
+let result = engine.transcribe_file(&PathBuf::from("audio.wav"), None)?;
+println!("{}", result.text);
+```
+
+### Qwen3-ASR Engine
+```rust
+use transcribe_rs::{TranscriptionEngine, engines::qwen_asr::QwenAsrEngine};
+use std::path::PathBuf;
+
+let mut engine = QwenAsrEngine::new();
+engine.load_model(&PathBuf::from("models/qwen3-asr-0.6b"))?;
 let result = engine.transcribe_file(&PathBuf::from("audio.wav"), None)?;
 println!("{}", result.text);
 ```
@@ -267,6 +294,15 @@ println!("{}", result.text);
    cd ..
    ```
 
+   **For Qwen3-ASR:**
+   ```bash
+   # Using huggingface-cli (brew install huggingface-cli)
+   hf download Qwen/Qwen3-ASR-0.6B --local-dir models/qwen3-asr-0.6b
+
+   # Or using git clone
+   git clone https://huggingface.co/Qwen/Qwen3-ASR-0.6B models/qwen3-asr-0.6b
+   ```
+
 ### Running the Examples
 
 Each engine has its own example file. You must specify the required feature when running:
@@ -289,6 +325,9 @@ cargo run --example sense_voice --features sense_voice -- --int8 models/sense-vo
 
 # Run GigaAM example
 cargo run --example gigaam --features gigaam
+
+# Run Qwen3-ASR example (always use --release for performance)
+cargo run --example qwen_asr --features qwen_asr --release -- models/qwen3-asr-0.6b samples/jfk.wav
 
 # Run OpenAI API example
 cargo run --example openai --features openai
@@ -313,6 +352,7 @@ cargo test --features whisper
 cargo test --features moonshine
 cargo test --features sense_voice
 cargo test --features gigaam
+cargo test --features qwen_asr
 cargo test --features whisperfile
 cargo test --features openai
 
@@ -418,6 +458,18 @@ cargo test --features gigaam
 
 GigaAM tests require a Russian audio sample at `samples/russian.wav`. Tests will skip if model or audio files are not found.
 
+**For Qwen3-ASR tests:**
+
+Download the Qwen3-ASR 0.6B model:
+```bash
+hf download Qwen/Qwen3-ASR-0.6B --local-dir models/qwen3-asr-0.6b
+
+# Run tests (always use --release for qwen-asr)
+cargo test --features qwen_asr --release
+```
+
+Qwen3-ASR tests require `models/qwen3-asr-0.6b` and `samples/jfk.wav`. Tests will skip if model or audio files are not found.
+
 **For Whisper tests:**
 
 Whisper tests will skip if models are not available in the expected locations.
@@ -431,3 +483,4 @@ Whisper tests will skip if models are not available in the expected locations.
 - Thanks to [UsefulSensors](https://github.com/usefulsensors) for the Moonshine models and ONNX exports
 - Thanks to [FunASR](https://github.com/modelscope/FunASR) for the SenseVoice model and [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) for the ONNX exports
 - Thanks to [SberDevices](https://github.com/salute-developers/GigaAM) for the GigaAM model and [istupakov](https://github.com/istupakov/onnx-asr) for the ONNX exports
+- Thanks to [Qwen](https://github.com/QwenLM) for the Qwen3-ASR model and [huanglizhuo](https://github.com/huanglizhuo/QwenASR) for the Rust implementation

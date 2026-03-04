@@ -16,6 +16,7 @@ moonshine = ["dep:ort", "dep:ndarray"]
 sense_voice = ["dep:ort", "dep:ndarray", "dep:rustfft", "dep:base64"]
 gigaam = ["dep:ort", "dep:ndarray", "dep:rustfft"]
 whisperfile = ["dep:ureq"]
+qwen_asr = ["dep:qwen-asr"]
 
 # Remote engines
 openai = ["dep:async-openai", "dep:tokio", "dep:async-trait"]
@@ -24,7 +25,7 @@ openai = ["dep:async-openai", "dep:tokio", "dep:async-trait"]
 # itn = ["dep:nemo-text-processing"]  # TODO: re-enable when nemo-text-processing is published to crates.io
 
 # Convenience
-all = ["whisper", "parakeet", "moonshine", "sense_voice", "gigaam", "whisperfile", "openai"]
+all = ["whisper", "parakeet", "moonshine", "sense_voice", "gigaam", "whisperfile", "openai", "qwen_asr"]
 
 [dependencies]
 # Always required
@@ -52,6 +53,9 @@ base64 = { version = "0.22", optional = true }
 
 # Whisperfile
 ureq = { version = "3", optional = true }
+
+# Qwen ASR
+qwen-asr = { version = "0.3", optional = true }
 
 # ITN (Inverse Text Normalization)
 # nemo-text-processing = { version = "0.1.0", git = "https://github.com/FluidInference/text-processing-rs", optional = true }  # TODO: re-enable when published to crates.io
@@ -100,6 +104,14 @@ name = "whisperfile"
 required-features = ["whisperfile"]
 
 [[example]]
+name = "qwen_asr"
+required-features = ["qwen_asr"]
+
+[[example]]
+name = "bench_whisper_vs_qwen"
+required-features = ["whisper", "qwen_asr"]
+
+[[example]]
 name = "openai"
 required-features = ["openai"]
 
@@ -130,6 +142,10 @@ required-features = ["sense_voice"]
 [[test]]
 name = "whisperfile"
 required-features = ["whisperfile"]
+
+[[test]]
+name = "qwen_asr"
+required-features = ["qwen_asr"]
 
 [[test]]
 name = "openai"

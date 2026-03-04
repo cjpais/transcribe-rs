@@ -13,6 +13,7 @@
 //! - `sense_voice` - FunASR SenseVoice (ONNX format)
 //! - `gigaam` - SberDevices GigaAM v3 (ONNX format)
 //! - `whisperfile` - Mozilla whisperfile server wrapper
+//! - `qwen_asr` - Qwen3-ASR (SafeTensors format, CPU-only)
 //!
 //! # Example
 //!
@@ -33,3 +34,5 @@ pub mod sense_voice;
 pub mod whisper;
 #[cfg(feature = "whisperfile")]
 pub mod whisperfile;
+#[cfg(feature = "qwen_asr")]
+pub mod qwen_asr;

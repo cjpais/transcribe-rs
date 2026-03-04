@@ -1392,6 +1392,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "qwen-asr"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e5c5e367ee0f0e5bae3f486b654ff0a1d036434939c3d46226c0ca1288fbfdf"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "r-efi"
 version = "5.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2171,6 +2180,7 @@ dependencies = [
  "ndarray",
  "once_cell",
  "ort",
+ "qwen-asr",
  "regex",
  "rustfft",
  "serde",
