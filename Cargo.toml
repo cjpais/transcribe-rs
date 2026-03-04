@@ -1,6 +1,6 @@
 [package]
 name = "transcribe-rs"
-version = "0.2.8"
+version = "0.2.9"
 edition = "2021"
 description = "A simple library to help you transcribe audio"
 license = "MIT"
@@ -37,7 +37,7 @@ thiserror = "2.0.16"
 derive_builder = { version = "0.20.2" }
 
 # Parakeet & Moonshine (ONNX-based)
-ort = { version = "2.0.0-rc.10", optional = true }
+ort = { version = "=2.0.0-rc.10", optional = true }
 ndarray = { version = "0.16.1", optional = true }
 
 # Parakeet only
