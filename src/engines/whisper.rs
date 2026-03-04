@@ -65,18 +65,18 @@ use std::path::{Path, PathBuf};
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
 /// Parameters for configuring Whisper model loading.
-///
-/// Currently, Whisper model loading doesn't require additional parameters
-/// beyond the model file path. This struct exists for API consistency
-/// and future extensibility.
 #[derive(Debug, Clone)]
 pub struct WhisperModelParams {
     pub use_gpu: bool,
+    pub flash_attn: bool,
 }
 
 impl Default for WhisperModelParams {
     fn default() -> Self {
-        Self { use_gpu: true }
+        Self {
+            use_gpu: true,
+            flash_attn: true,
+        }
     }
 }
 
@@ -209,7 +209,8 @@ impl TranscriptionEngine for WhisperEngine {
         params: Self::ModelParams,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut context_params = WhisperContextParameters::default();
-        context_params.use_gpu = params.use_gpu;
+        context_params.use_gpu(params.use_gpu);
+        context_params.flash_attn(params.flash_attn);
         let context = WhisperContext::new_with_params(
             model_path.to_str().unwrap(),
             context_params,
@@ -253,7 +254,7 @@ impl TranscriptionEngine for WhisperEngine {
         full_params.set_print_realtime(whisper_params.print_realtime);
         full_params.set_print_timestamps(whisper_params.print_timestamps);
         full_params.set_suppress_blank(whisper_params.suppress_blank);
-        full_params.set_suppress_non_speech_tokens(whisper_params.suppress_non_speech_tokens);
+        full_params.set_suppress_nst(whisper_params.suppress_non_speech_tokens);
         full_params.set_no_speech_thold(whisper_params.no_speech_thold);
 
         if let Some(ref prompt) = whisper_params.initial_prompt {
@@ -262,17 +263,18 @@ impl TranscriptionEngine for WhisperEngine {
 
         state.full(full_params, &samples)?;
 
-        let num_segments = state
-            .full_n_segments()
-            .expect("failed to get number of segments");
+        let num_segments = state.full_n_segments();
 
         let mut segments = Vec::new();
         let mut full_text = String::new();
 
         for i in 0..num_segments {
-            let text = state.full_get_segment_text(i)?;
-            let start = state.full_get_segment_t0(i)? as f32 / 100.0;
-            let end = state.full_get_segment_t1(i)? as f32 / 100.0;
+            let segment = state
+                .get_segment(i)
+                .ok_or("failed to get segment")?;
+            let text = segment.to_str()?.to_string();
+            let start = segment.start_timestamp() as f32 / 100.0;
+            let end = segment.end_timestamp() as f32 / 100.0;
 
             segments.push(TranscriptionSegment {
                 start,
