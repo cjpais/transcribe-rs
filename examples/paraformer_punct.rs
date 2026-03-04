@@ -1,11 +1,14 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use transcribe_rs::{
     engines::paraformer::{ParaformerEngine, ParaformerModelParams},
-    punct::add_punctuation,
+    punct::PunctModel,
     TranscriptionEngine,
 };
+
+const DEFAULT_PUNCT_MODEL: &str =
+    "models/sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
@@ -33,7 +36,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let transcribed_text = &result.text;
     engine.unload_model();
 
-    let punctuated_text = add_punctuation(transcribed_text);
+    // Post-process: add punctuation externally
+    let mut punct_model = PunctModel::new(Path::new(DEFAULT_PUNCT_MODEL))?;
+    let punctuated_text = punct_model.add_punctuation(transcribed_text);
 
     println!("Model: {:?}", model_path);
     println!("Audio: {:?}", wav_path);

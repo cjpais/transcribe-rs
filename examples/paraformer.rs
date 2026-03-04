@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use transcribe_rs::{
-    engines::paraformer::{ParaformerEngine, ParaformerInferenceParams, ParaformerModelParams},
+    engines::paraformer::{ParaformerEngine, ParaformerModelParams},
     TranscriptionEngine,
 };
 
@@ -18,12 +18,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let args: Vec<String> = std::env::args().collect();
     let fp32 = args.iter().any(|a| a == "--fp32");
-    let force_punct = args.iter().any(|a| a == "--punct");
-    let disable_punct = args.iter().any(|a| a == "--no-punct");
-    let punct_model_dir = args
-        .iter()
-        .find_map(|a| a.strip_prefix("--punct-model="))
-        .map(PathBuf::from);
     let int8 = !fp32;
     let positional: Vec<&String> = args
         .iter()
@@ -49,13 +43,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         ParaformerModelParams::fp32()
     };
-    let auto_punct = if disable_punct {
-        false
-    } else if force_punct {
-        true
-    } else {
-        ParaformerInferenceParams::default().auto_punctuation
-    };
 
     let audio_duration = get_audio_duration(&wav_path)?;
     println!("Audio duration: {:.2}s", audio_duration);
@@ -65,10 +52,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         model_path,
         if int8 { "int8" } else { "fp32" }
     );
-    println!("Auto punctuation: {}", auto_punct);
-    if let Some(ref p) = punct_model_dir {
-        println!("Punctuation model: {:?}", p);
-    }
 
     let mut engine = ParaformerEngine::new();
     let load_start = Instant::now();
@@ -78,11 +61,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Transcribing file: {:?}", wav_path);
     let transcribe_start = Instant::now();
-    let infer_params = ParaformerInferenceParams {
-        auto_punctuation: auto_punct,
-        punct_model_dir,
-    };
-    let result = engine.transcribe_file(&wav_path, Some(infer_params))?;
+    let result = engine.transcribe_file(&wav_path, None)?;
     let transcribe_duration = transcribe_start.elapsed();
     println!("Transcription completed in {:.2?}", transcribe_duration);
 

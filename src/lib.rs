@@ -68,7 +68,7 @@ pub use itn::apply_itn;
 #[cfg(feature = "punct")]
 pub mod punct;
 #[cfg(feature = "punct")]
-pub use punct::{add_punctuation, add_punctuation_with_model};
+pub use punct::{PunctError, PunctModel};
 
 use std::path::Path;
 

@@ -2,9 +2,6 @@ use std::path::{Path, PathBuf};
 
 use crate::{TranscriptionEngine, TranscriptionResult};
 
-#[cfg(feature = "punct")]
-use crate::{add_punctuation, add_punctuation_with_model};
-
 use super::model::ZipformerCtcModel;
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -33,45 +30,8 @@ impl ZipformerCtcModelParams {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct ZipformerCtcInferenceParams {
-    /// Whether to run punctuation restoration after ASR.
-    pub auto_punctuation: bool,
-    /// Optional custom punctuation model directory.
-    pub punct_model_dir: Option<PathBuf>,
-}
-
-impl Default for ZipformerCtcInferenceParams {
-    fn default() -> Self {
-        Self {
-            auto_punctuation: true,
-            punct_model_dir: None,
-        }
-    }
-}
-
-impl ZipformerCtcInferenceParams {
-    pub fn with_punctuation() -> Self {
-        Self {
-            auto_punctuation: true,
-            punct_model_dir: None,
-        }
-    }
-
-    pub fn without_punctuation() -> Self {
-        Self {
-            auto_punctuation: false,
-            punct_model_dir: None,
-        }
-    }
-
-    pub fn with_custom_punctuation_model(model_dir: PathBuf) -> Self {
-        Self {
-            auto_punctuation: true,
-            punct_model_dir: Some(model_dir),
-        }
-    }
-}
+#[derive(Debug, Clone, Default)]
+pub struct ZipformerCtcInferenceParams {}
 
 pub struct ZipformerCtcEngine {
     loaded_model_path: Option<PathBuf>,
@@ -130,36 +90,18 @@ impl TranscriptionEngine for ZipformerCtcEngine {
     fn transcribe_samples(
         &mut self,
         samples: Vec<f32>,
-        params: Option<Self::InferenceParams>,
+        _params: Option<Self::InferenceParams>,
     ) -> Result<TranscriptionResult, Box<dyn std::error::Error>> {
         let model = self
             .model
             .as_mut()
             .ok_or("Model not loaded. Call load_model() first.")?;
 
-        let params = params.unwrap_or_default();
         let result = model.transcribe(&samples)?;
         log::debug!("Decoded {} zipformer ctc tokens", result.token_ids.len());
 
-        let text = if params.auto_punctuation {
-            #[cfg(feature = "punct")]
-            {
-                if let Some(model_dir) = params.punct_model_dir.as_ref() {
-                    add_punctuation_with_model(&result.text, model_dir)
-                } else {
-                    add_punctuation(&result.text)
-                }
-            }
-            #[cfg(not(feature = "punct"))]
-            {
-                result.text
-            }
-        } else {
-            result.text
-        };
-
         Ok(TranscriptionResult {
-            text,
+            text: result.text,
             segments: None,
         })
     }

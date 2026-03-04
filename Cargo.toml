@@ -108,6 +108,14 @@ name = "paraformer_punct"
 required-features = ["paraformer", "punct"]
 
 [[example]]
+name = "punct_test"
+required-features = ["punct"]
+
+[[example]]
+name = "punct_infer"
+required-features = ["punct"]
+
+[[example]]
 name = "zipformer_ctc"
 required-features = ["zipformer-ctc"]
 

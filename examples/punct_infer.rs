@@ -1,11 +1,12 @@
-use std::fs::File;
-use std::io::Write;
-use transcribe_rs::punct::add_punctuation;
+use std::path::Path;
+use transcribe_rs::punct::PunctModel;
 
-fn main() {
-    let mut file = File::create("/Users/zac/clawd/transcribe-rs/punct_result.txt").unwrap();
+const DEFAULT_PUNCT_MODEL: &str =
+    "models/sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8";
 
-    // Test with proper spacing in input
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut model = PunctModel::new(Path::new(DEFAULT_PUNCT_MODEL))?;
+
     let texts = vec![
         // Input with proper English spacing
         "hello world how are you today",
@@ -18,14 +19,13 @@ fn main() {
         "让我测试一条完整的语音这条语音其实包含了englishandchinesedoyouknowthechinesemeans",
     ];
 
-    writeln!(file, "=== Punctuation Test Results ===").unwrap();
+    println!("=== Punctuation Test Results ===");
     for text in texts {
-        let result = add_punctuation(text);
-        writeln!(file, "Input:  {}", text).unwrap();
-        writeln!(file, "Output: {}", result).unwrap();
-        writeln!(file, "").unwrap();
+        let result = model.add_punctuation(text);
         println!("Input:  {}", text);
         println!("Output: {}", result);
-        println!("");
+        println!();
     }
+
+    Ok(())
 }
