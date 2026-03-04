@@ -22,7 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let wav_path = PathBuf::from(
         args.get(2)
             .map(|s| s.as_str())
-            .unwrap_or("/Users/zac/Downloads/test.wav"),
+            .unwrap_or("models/sherpa-paraformer/test_wavs/0.wav"),
     );
 
     let mut engine = ParaformerEngine::new();

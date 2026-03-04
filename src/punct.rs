@@ -78,8 +78,6 @@ impl PunctType {
 pub struct PunctModel {
     session: Session,
     token2id: HashMap<String, i32>,
-    #[allow(dead_code)]
-    id2token: Vec<String>,
     unk_id: i32,
     input_name: String,
     length_name: String,
@@ -118,7 +116,7 @@ impl PunctModel {
         log::info!("Loading punctuation model from {:?}...", model_path);
 
         let session = Self::init_session(&model_path)?;
-        let (token2id, id2token, unk_id) = Self::load_tokens(&tokens_path)?;
+        let (token2id, unk_id) = Self::load_tokens(&tokens_path)?;
 
         // Get input names
         let input_name = session.inputs[0].name.clone();
@@ -133,7 +131,6 @@ impl PunctModel {
         Ok(Self {
             session,
             token2id,
-            id2token,
             unk_id,
             input_name,
             length_name,
@@ -167,7 +164,7 @@ impl PunctModel {
         Ok(session)
     }
 
-    fn load_tokens(path: &Path) -> Result<(HashMap<String, i32>, Vec<String>, i32), PunctError> {
+    fn load_tokens(path: &Path) -> Result<(HashMap<String, i32>, i32), PunctError> {
         let file = File::open(path)?;
         let tokens: Vec<String> = serde_json::from_reader(file)?;
 
@@ -181,7 +178,7 @@ impl PunctModel {
 
         log::info!("Loaded {} tokens, unk_id={}", tokens.len(), unk_id);
 
-        Ok((token2id, tokens, unk_id))
+        Ok((token2id, unk_id))
     }
 
     /// Tokenize input text
