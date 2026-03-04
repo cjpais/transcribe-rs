@@ -75,10 +75,16 @@ impl MoonshineModel {
         log::info!("Loading Moonshine decoder from {:?}...", decoder_path);
         let decoder = Self::init_session(&decoder_path)?;
 
-        let encoder_input_names: Vec<String> =
-            encoder.inputs.iter().map(|i| i.name.clone()).collect();
-        let decoder_input_names: Vec<String> =
-            decoder.inputs.iter().map(|i| i.name.clone()).collect();
+        let encoder_input_names: Vec<String> = encoder
+            .inputs()
+            .iter()
+            .map(|i| i.name().to_string().clone())
+            .collect();
+        let decoder_input_names: Vec<String> = decoder
+            .inputs()
+            .iter()
+            .map(|i| i.name().to_string().clone())
+            .collect();
 
         log::debug!("Encoder inputs: {:?}", encoder_input_names);
         log::debug!("Decoder inputs: {:?}", decoder_input_names);
@@ -104,11 +110,11 @@ impl MoonshineModel {
             .with_parallel_execution(true)?
             .commit_from_file(path)?;
 
-        for input in &session.inputs {
+        for input in session.inputs() {
             log::info!(
                 "Model input: name={}, type={:?}",
-                input.name,
-                input.input_type
+                input.name(),
+                input.dtype()
             );
         }
 

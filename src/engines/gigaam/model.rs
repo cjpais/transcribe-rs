@@ -341,18 +341,18 @@ impl GigaAMModel {
             .with_parallel_execution(true)?
             .commit_from_file(path)?;
 
-        for input in &session.inputs {
+        for input in session.inputs() {
             log::info!(
                 "Model input: name={}, type={:?}",
-                input.name,
-                input.input_type
+                input.name(),
+                input.dtype()
             );
         }
-        for output in &session.outputs {
+        for output in session.outputs() {
             log::info!(
                 "Model output: name={}, type={:?}",
-                output.name,
-                output.output_type
+                output.name(),
+                output.dtype()
             );
         }
 
