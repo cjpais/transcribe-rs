@@ -100,6 +100,10 @@ name = "sense_voice"
 required-features = ["sense_voice"]
 
 [[example]]
+name = "analyze_paraformer"
+required-features = ["paraformer"]
+
+[[example]]
 name = "paraformer"
 required-features = ["paraformer"]
 
