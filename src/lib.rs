@@ -60,10 +60,10 @@ pub mod remote;
 #[cfg(feature = "openai")]
 pub use remote::RemoteTranscriptionEngine;
 
-#[cfg(feature = "itn")]
-pub mod itn;
-#[cfg(feature = "itn")]
-pub use itn::apply_itn;
+#[cfg(feature = "punct")]
+pub mod punct;
+#[cfg(feature = "punct")]
+pub use punct::{PunctError, PunctModel};
 
 use std::path::Path;
 

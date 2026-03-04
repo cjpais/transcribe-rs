@@ -25,6 +25,8 @@
 pub mod gigaam;
 #[cfg(feature = "moonshine")]
 pub mod moonshine;
+#[cfg(feature = "paraformer")]
+pub mod paraformer;
 #[cfg(feature = "parakeet")]
 pub mod parakeet;
 #[cfg(feature = "sense_voice")]
@@ -33,3 +35,10 @@ pub mod sense_voice;
 pub mod whisper;
 #[cfg(feature = "whisperfile")]
 pub mod whisperfile;
+#[cfg(feature = "zipformer-ctc")]
+pub mod zipformer_ctc;
+#[cfg(feature = "zipformer-transducer")]
+pub mod zipformer_transducer;
+
+#[cfg(any(feature = "zipformer-ctc", feature = "zipformer-transducer"))]
+pub mod zipformer_common;
