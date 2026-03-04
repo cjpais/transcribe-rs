@@ -8,7 +8,7 @@ This library was extracted from the [Handy](https://github.com/cjpais/handy) pro
 
 - **Multiple Transcription Engines**: Support for Whisper, Whisperfile, Parakeet, Moonshine, SenseVoice, and GigaAM models
 - **Cross-platform**: Works on macOS, Windows, and Linux with optimized backends
-- **Hardware Acceleration**: Metal on macOS, Vulkan on Windows/Linux
+- **Hardware Acceleration**: Metal on macOS, Vulkan on Windows/Linux, CUDA on Windows x64 (opt-in)
 - **Flexible API**: Common interface for different transcription engines
 - **Multi-language Support**: SenseVoice supports Chinese, English, Japanese, Korean, and Cantonese; Moonshine supports English, Arabic, Chinese, Japanese, Korean, Ukrainian, Vietnamese, and Spanish; GigaAM supports Russian with punctuation and Latin characters
 - **Opt-in Dependencies**: Only compile and link the engines you need via Cargo features
@@ -38,6 +38,7 @@ transcribe-rs = { version = "0.1.5", features = ["all"] }
 | `whisperfile` | Mozilla whisperfile server wrapper | reqwest |
 | `openai` | OpenAI API (remote) | async-openai, tokio |
 | `all` | All engines enabled | All of the above |
+| `whisper-cuda` | Whisper with CUDA (Windows x64) | whisper-rs, CUDA Toolkit 12.0+ |
 
 **Note**: By default, no features are enabled. You must explicitly choose which engines to include.
 
