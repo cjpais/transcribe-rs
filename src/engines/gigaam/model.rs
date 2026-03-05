@@ -1,5 +1,4 @@
 use ndarray::Array2;
-use ort::execution_providers::CPUExecutionProvider;
 use ort::inputs;
 use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
@@ -333,7 +332,7 @@ impl GigaAMModel {
     }
 
     fn init_session(path: &Path) -> Result<Session, GigaAMError> {
-        let providers = vec![CPUExecutionProvider::default().build()];
+        let providers = crate::ort_providers::execution_providers();
 
         let session = Session::builder()?
             .with_optimization_level(GraphOptimizationLevel::Level3)?

@@ -55,6 +55,24 @@
 pub mod audio;
 pub mod engines;
 
+#[cfg(any(
+    feature = "parakeet",
+    feature = "moonshine",
+    feature = "sense_voice",
+    feature = "gigaam",
+))]
+pub mod ort_providers;
+
+#[cfg(any(
+    feature = "parakeet",
+    feature = "moonshine",
+    feature = "sense_voice",
+    feature = "gigaam",
+))]
+pub use ort_providers::{
+    available_providers, cpu_execution_providers, get_gpu_provider, set_gpu_provider, GpuProvider,
+};
+
 #[cfg(feature = "openai")]
 pub mod remote;
 #[cfg(feature = "openai")]

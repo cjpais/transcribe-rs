@@ -23,6 +23,12 @@ openai = ["dep:async-openai", "dep:tokio", "dep:async-trait"]
 # Post-processing
 # itn = ["dep:nemo-text-processing"]  # TODO: re-enable when nemo-text-processing is published to crates.io
 
+# GPU execution providers (pass-through to ort)
+directml = ["dep:ort", "ort/directml"]
+cuda = ["dep:ort", "ort/cuda"]
+coreml = ["dep:ort", "ort/coreml"]
+webgpu = ["dep:ort", "ort/webgpu"]
+
 # Convenience
 all = ["whisper", "parakeet", "moonshine", "sense_voice", "gigaam", "whisperfile", "openai"]
 
