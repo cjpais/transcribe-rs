@@ -2,7 +2,7 @@ use std::path::Path;
 
 use async_trait::async_trait;
 
-use crate::TranscriptionResult;
+use crate::{TranscribeError, TranscriptionResult};
 
 pub mod openai;
 
@@ -18,5 +18,5 @@ pub trait RemoteTranscriptionEngine: Send + Sync {
         &self,
         wav_path: &Path,
         params: Self::RequestParams,
-    ) -> Result<TranscriptionResult, Box<dyn std::error::Error>>;
+    ) -> Result<TranscriptionResult, TranscribeError>;
 }

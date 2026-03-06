@@ -24,12 +24,22 @@ async fn test_dots_transcription() {
         .await
         .expect("Failed to transcribe");
 
-    let expected = "Of course, it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards ten years later. Again, you can't connect the dots looking forward, you can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something, your gut, destiny, life, karma, whatever. Because believing that the dots will connect down the road will give you the confidence to follow your heart even when it leads you off the well-worn path, and that will make all the difference.";
-    assert_eq!(
-        result.text.trim(),
-        expected,
-        "\nExpected: '{}'\nActual: '{}'",
-        expected,
-        result.text.trim()
-    );
+    let text = result.text.trim();
+    assert!(!text.is_empty(), "Transcription should not be empty");
+    // Check key phrases rather than exact match — remote API punctuation varies between calls
+    for phrase in [
+        "connect the dots",
+        "looking forward",
+        "looking backwards",
+        "trust in something",
+        "follow your heart",
+        "make all the difference",
+    ] {
+        assert!(
+            text.contains(phrase),
+            "Transcription missing expected phrase '{}'\nActual: '{}'",
+            phrase,
+            text
+        );
+    }
 }

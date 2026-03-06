@@ -49,7 +49,7 @@ use async_openai::{
 use async_trait::async_trait;
 use derive_builder::Builder;
 
-use crate::{RemoteTranscriptionEngine, TranscriptionResult, TranscriptionSegment};
+use crate::{RemoteTranscriptionEngine, TranscribeError, TranscriptionResult, TranscriptionSegment};
 
 #[derive(Debug)]
 pub struct OpenAIEngine<T>
@@ -150,7 +150,7 @@ where
         &self,
         wav_path: &std::path::Path,
         params: Self::RequestParams,
-    ) -> Result<crate::TranscriptionResult, Box<dyn std::error::Error>> {
+    ) -> Result<crate::TranscriptionResult, TranscribeError> {
         let source = AudioInput {
             source: InputSource::Path {
                 path: wav_path.to_path_buf(),
@@ -181,9 +181,11 @@ where
             OpenAIModel::Gpt4oMiniTranscribe | OpenAIModel::Gpt4oTranscribe => {
                 request.response_format(async_openai::types::AudioResponseFormat::Json);
 
-                let request = request.build()?;
+                let request = request.build()
+                    .map_err(|e| TranscribeError::Inference(e.to_string()))?;
 
-                let response = self.client.audio().transcribe(request).await?;
+                let response = self.client.audio().transcribe(request).await
+                    .map_err(|e| TranscribeError::Inference(e.to_string()))?;
 
                 return Ok(TranscriptionResult {
                     text: response.text,
@@ -199,9 +201,11 @@ where
                     request.timestamp_granularities(vec![timestamp_granularity.clone()]);
                 }
 
-                let request = request.build()?;
+                let request = request.build()
+                    .map_err(|e| TranscribeError::Inference(e.to_string()))?;
 
-                let response = self.client.audio().transcribe_verbose_json(request).await?;
+                let response = self.client.audio().transcribe_verbose_json(request).await
+                    .map_err(|e| TranscribeError::Inference(e.to_string()))?;
 
                 let segments = match params.timestamp_granularity {
                     Some(async_openai::types::TimestampGranularity::Word) => Some(

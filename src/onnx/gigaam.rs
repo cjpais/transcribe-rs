@@ -4,6 +4,7 @@ use ort::value::TensorRef;
 use std::path::Path;
 
 use crate::features::{compute_mel, MelConfig, WindowType};
+use crate::TranscribeError;
 use super::session;
 use crate::{ModelCapabilities, SpeechModel, TranscriptionResult};
 
@@ -47,9 +48,9 @@ pub struct GigaAMModel {
 }
 
 impl GigaAMModel {
-    pub fn load(model_path: &Path) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn load(model_path: &Path) -> Result<Self, TranscribeError> {
         if !model_path.exists() {
-            return Err(format!("Model file not found: {}", model_path.display()).into());
+            return Err(TranscribeError::ModelNotFound(model_path.to_path_buf()));
         }
 
         log::info!("Loading GigaAM model from {:?}...", model_path);
@@ -77,7 +78,7 @@ impl GigaAMModel {
     fn infer(
         &mut self,
         samples: &[f32],
-    ) -> Result<TranscriptionResult, Box<dyn std::error::Error>> {
+    ) -> Result<TranscriptionResult, TranscribeError> {
         if samples.len() < self.mel_config.n_fft {
             return Ok(TranscriptionResult {
                 text: String::new(),
@@ -85,9 +86,9 @@ impl GigaAMModel {
             });
         }
 
-        // 1. Compute mel spectrogram [num_mels, time]
+        // 1. Compute mel spectrogram [frames, mels]
         let mel = compute_mel(samples, &self.mel_config);
-        let time_steps = mel.shape()[1];
+        let time_steps = mel.shape()[0];
 
         log::debug!(
             "Mel spectrogram shape: [{}, {}]",
@@ -96,14 +97,17 @@ impl GigaAMModel {
         );
 
         // 2. Prepare input tensors: features [1, n_mels, time], feature_lengths [1]
-        let features = mel.insert_axis(ndarray::Axis(0)); // [1, 64, T]
+        // ONNX model expects [1, mels, time], so transpose then add batch dim
+        let features = mel.t().to_owned().insert_axis(ndarray::Axis(0)); // [1, 64, T]
         let features_dyn = features.into_dyn();
         let feature_lengths = ndarray::arr1(&[time_steps as i64]).into_dyn();
 
         // 3. Run ONNX forward pass
+        let t_features = TensorRef::from_array_view(features_dyn.view())?;
+        let t_lengths = TensorRef::from_array_view(feature_lengths.view())?;
         let inputs = inputs! {
-            "features" => TensorRef::from_array_view(features_dyn.view())?,
-            "feature_lengths" => TensorRef::from_array_view(feature_lengths.view())?,
+            "features" => t_features,
+            "feature_lengths" => t_lengths,
         };
         let outputs = self.session.run(inputs)?;
 
@@ -132,7 +136,7 @@ impl SpeechModel for GigaAMModel {
         &mut self,
         samples: &[f32],
         _language: Option<&str>,
-    ) -> Result<TranscriptionResult, Box<dyn std::error::Error>> {
+    ) -> Result<TranscriptionResult, TranscribeError> {
         self.infer(samples)
     }
 }

@@ -25,7 +25,7 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
-use crate::{ModelCapabilities, SpeechModel, TranscriptionResult, TranscriptionSegment};
+use crate::{ModelCapabilities, SpeechModel, TranscribeError, TranscriptionResult, TranscriptionSegment};
 use std::path::{Path, PathBuf};
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
@@ -125,7 +125,7 @@ impl WhisperEngine {
     }
 
     /// Load a Whisper model with default parameters.
-    pub fn load_model(&mut self, model_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn load_model(&mut self, model_path: &Path) -> Result<(), TranscribeError> {
         self.load_model_with_params(model_path, WhisperModelParams::default())
     }
 
@@ -134,15 +134,18 @@ impl WhisperEngine {
         &mut self,
         model_path: &Path,
         params: WhisperModelParams,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), TranscribeError> {
         let mut context_params = WhisperContextParameters::default();
         context_params.use_gpu = params.use_gpu;
         let context = WhisperContext::new_with_params(
             model_path.to_str().unwrap(),
             context_params,
-        )?;
+        )
+        .map_err(|e| TranscribeError::Inference(e.to_string()))?;
 
-        let state = context.create_state()?;
+        let state = context
+            .create_state()
+            .map_err(|e| TranscribeError::Inference(e.to_string()))?;
 
         self.context = Some(context);
         self.state = Some(state);
@@ -162,7 +165,7 @@ impl WhisperEngine {
         &mut self,
         samples: &[f32],
         params: &WhisperInferenceParams,
-    ) -> Result<TranscriptionResult, Box<dyn std::error::Error>> {
+    ) -> Result<TranscriptionResult, TranscribeError> {
         self.infer(samples.to_vec(), params)
     }
 
@@ -170,11 +173,11 @@ impl WhisperEngine {
         &mut self,
         samples: Vec<f32>,
         params: &WhisperInferenceParams,
-    ) -> Result<TranscriptionResult, Box<dyn std::error::Error>> {
+    ) -> Result<TranscriptionResult, TranscribeError> {
         let state = self
             .state
             .as_mut()
-            .ok_or("Model not loaded. Call load_model() first.")?;
+            .ok_or_else(|| TranscribeError::Inference("Model not loaded. Call load_model() first.".to_string()))?;
 
         let mut full_params = FullParams::new(SamplingStrategy::BeamSearch {
             beam_size: 3,
@@ -194,19 +197,29 @@ impl WhisperEngine {
             full_params.set_initial_prompt(prompt);
         }
 
-        state.full(full_params, &samples)?;
+        state
+            .full(full_params, &samples)
+            .map_err(|e| TranscribeError::Inference(e.to_string()))?;
 
         let num_segments = state
             .full_n_segments()
-            .expect("failed to get number of segments");
+            .map_err(|e| TranscribeError::Inference(e.to_string()))?;
 
         let mut segments = Vec::new();
         let mut full_text = String::new();
 
         for i in 0..num_segments {
-            let text = state.full_get_segment_text(i)?;
-            let start = state.full_get_segment_t0(i)? as f32 / 100.0;
-            let end = state.full_get_segment_t1(i)? as f32 / 100.0;
+            let text = state
+                .full_get_segment_text(i)
+                .map_err(|e| TranscribeError::Inference(e.to_string()))?;
+            let start = state
+                .full_get_segment_t0(i)
+                .map_err(|e| TranscribeError::Inference(e.to_string()))? as f32
+                / 100.0;
+            let end = state
+                .full_get_segment_t1(i)
+                .map_err(|e| TranscribeError::Inference(e.to_string()))? as f32
+                / 100.0;
 
             segments.push(TranscriptionSegment {
                 start,
@@ -238,7 +251,7 @@ impl SpeechModel for WhisperEngine {
         &mut self,
         samples: &[f32],
         language: Option<&str>,
-    ) -> Result<TranscriptionResult, Box<dyn std::error::Error>> {
+    ) -> Result<TranscriptionResult, TranscribeError> {
         let params = WhisperInferenceParams {
             language: language.map(|s| s.to_string()),
             ..Default::default()

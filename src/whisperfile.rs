@@ -4,7 +4,7 @@
 //! for speech-to-text conversion. The engine manages the whisperfile server
 //! lifecycle automatically.
 
-use crate::{ModelCapabilities, SpeechModel, TranscriptionResult, TranscriptionSegment};
+use crate::{ModelCapabilities, SpeechModel, TranscribeError, TranscriptionResult, TranscriptionSegment};
 
 const CAPABILITIES: ModelCapabilities = ModelCapabilities {
     name: "Whisperfile",
@@ -212,7 +212,7 @@ impl WhisperfileEngine {
     }
 
     /// Load a model with default parameters.
-    pub fn load_model(&mut self, model_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn load_model(&mut self, model_path: &Path) -> Result<(), TranscribeError> {
         self.load_model_with_params(model_path, WhisperfileModelParams::default())
     }
 
@@ -221,7 +221,7 @@ impl WhisperfileEngine {
         &mut self,
         model_path: &Path,
         params: WhisperfileModelParams,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), TranscribeError> {
         self.unload_model();
 
         if !self.binary_path.exists() {
@@ -229,16 +229,12 @@ impl WhisperfileEngine {
                 "Whisperfile binary not found: {}",
                 self.binary_path.display()
             );
-            return Err(format!(
-                "Whisperfile binary not found: {}",
-                self.binary_path.display()
-            )
-            .into());
+            return Err(TranscribeError::ModelNotFound(self.binary_path.clone()));
         }
 
         if !model_path.exists() {
             warn!("Model file not found: {}", model_path.display());
-            return Err(format!("Model file not found: {}", model_path.display()).into());
+            return Err(TranscribeError::ModelNotFound(model_path.to_path_buf()));
         }
 
         self.server_url = format!("http://{}:{}", params.host, params.port);
@@ -267,7 +263,7 @@ impl WhisperfileEngine {
             .spawn()
             .map_err(|e| {
                 error!("Failed to spawn whisperfile server: {}", e);
-                format!("Failed to spawn whisperfile server: {}", e)
+                TranscribeError::Inference(format!("Failed to spawn whisperfile server: {}", e))
             })?;
 
         debug!("Whisperfile server process spawned (pid: {:?})", child.id());
@@ -328,7 +324,7 @@ impl WhisperfileEngine {
         &mut self,
         samples: &[f32],
         params: &WhisperfileInferenceParams,
-    ) -> Result<TranscriptionResult, Box<dyn std::error::Error>> {
+    ) -> Result<TranscriptionResult, TranscribeError> {
         self.transcribe_samples_inner(samples.to_vec(), Some(params.clone()))
     }
 
@@ -337,10 +333,10 @@ impl WhisperfileEngine {
         &mut self,
         wav_path: &Path,
         params: &WhisperfileInferenceParams,
-    ) -> Result<TranscriptionResult, Box<dyn std::error::Error>> {
+    ) -> Result<TranscriptionResult, TranscribeError> {
         if self.server_process.is_none() {
             warn!("Attempted to transcribe file without loading model");
-            return Err("Model not loaded. Call load_model() first.".into());
+            return Err(TranscribeError::Inference("Model not loaded. Call load_model() first.".to_string()));
         }
 
         debug!("Transcribing file: {}", wav_path.display());
@@ -348,7 +344,7 @@ impl WhisperfileEngine {
         self.transcribe_wav_bytes(wav_data, Some(params.clone()))
     }
 
-    fn wait_for_server(&self, timeout: Duration) -> Result<(), Box<dyn std::error::Error>> {
+    fn wait_for_server(&self, timeout: Duration) -> Result<(), TranscribeError> {
         let start = Instant::now();
         let url = format!("{}/", self.server_url);
 
@@ -377,21 +373,20 @@ impl WhisperfileEngine {
             "Whisperfile server failed to start within {} seconds",
             timeout.as_secs()
         );
-        Err(format!(
+        Err(TranscribeError::Inference(format!(
             "Whisperfile server failed to start within {} seconds",
             timeout.as_secs()
-        )
-        .into())
+        )))
     }
 
     fn transcribe_samples_inner(
         &mut self,
         samples: Vec<f32>,
         params: Option<WhisperfileInferenceParams>,
-    ) -> Result<TranscriptionResult, Box<dyn std::error::Error>> {
+    ) -> Result<TranscriptionResult, TranscribeError> {
         if self.server_process.is_none() {
             warn!("Attempted to transcribe samples without loading model");
-            return Err("Model not loaded. Call load_model() first.".into());
+            return Err(TranscribeError::Inference("Model not loaded. Call load_model() first.".to_string()));
         }
 
         debug!("Transcribing {} samples", samples.len());
@@ -419,7 +414,7 @@ impl WhisperfileEngine {
         &self,
         wav_data: Vec<u8>,
         params: Option<WhisperfileInferenceParams>,
-    ) -> Result<TranscriptionResult, Box<dyn std::error::Error>> {
+    ) -> Result<TranscriptionResult, TranscribeError> {
         let params = params.unwrap_or_default();
 
         trace!(
@@ -461,18 +456,20 @@ impl WhisperfileEngine {
             .send(&body[..])
             .map_err(|e| {
                 error!("Request to whisperfile server failed: {}", e);
-                format!("Request to whisperfile server failed: {}", e)
+                TranscribeError::Inference(format!("Request to whisperfile server failed: {}", e))
             })?;
 
         let status = response.status();
         if !status.is_success() {
             let body = response.into_body().read_to_string().unwrap_or_default();
             error!("Whisperfile server error {}: {}", status, body);
-            return Err(format!("Whisperfile server error {}: {}", status, body).into());
+            return Err(TranscribeError::Inference(format!("Whisperfile server error {}: {}", status, body)));
         }
 
-        let json_response = response.into_body().read_to_string()?;
-        let whisperfile_output: WhisperfileOutput = serde_json::from_str(&json_response)?;
+        let json_response = response.into_body().read_to_string()
+            .map_err(|e| TranscribeError::Inference(e.to_string()))?;
+        let whisperfile_output: WhisperfileOutput = serde_json::from_str(&json_response)
+            .map_err(|e| TranscribeError::Inference(e.to_string()))?;
 
         debug!(
             "Transcription completed in {:.2}s ({} chars)",
@@ -500,7 +497,7 @@ impl SpeechModel for WhisperfileEngine {
         &mut self,
         samples: &[f32],
         language: Option<&str>,
-    ) -> Result<TranscriptionResult, Box<dyn std::error::Error>> {
+    ) -> Result<TranscriptionResult, TranscribeError> {
         let params = WhisperfileInferenceParams {
             language: language.map(|s| s.to_string()),
             ..Default::default()

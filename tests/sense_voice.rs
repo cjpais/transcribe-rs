@@ -8,7 +8,7 @@ use transcribe_rs::SpeechModel;
 fn test_sense_voice_transcribe() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
-    let model_path = PathBuf::from("models/sense-voice");
+    let model_path = PathBuf::from("models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17");
     let wav_path = PathBuf::from("samples/dots.wav");
 
     if !model_path.exists() {

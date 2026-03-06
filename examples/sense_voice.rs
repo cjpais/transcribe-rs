@@ -3,7 +3,6 @@ use std::time::Instant;
 
 use transcribe_rs::onnx::sense_voice::{SenseVoiceModel, SenseVoiceParams};
 use transcribe_rs::onnx::Quantization;
-use transcribe_rs::SpeechModel;
 
 fn get_audio_duration(path: &PathBuf) -> Result<f64, Box<dyn std::error::Error>> {
     let reader = hound::WavReader::open(path)?;

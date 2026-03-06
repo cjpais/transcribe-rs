@@ -45,12 +45,7 @@ impl Default for MelConfig {
 
 /// Compute mel spectrogram features from audio samples.
 ///
-/// Returns an array of shape [num_frames, num_mels] (for FBANK-style with pre_emphasis/snip_edges)
-/// or [num_mels, num_frames] (for standard mel spectrogram without pre_emphasis).
-///
-/// The output layout depends on configuration:
-/// - With `pre_emphasis` (SenseVoice-style FBANK): [num_frames, num_mels]
-/// - Without `pre_emphasis` (GigaAM-style mel): [num_mels, num_frames]
+/// Always returns an array of shape `[num_frames, num_mels]` (time-major).
 pub fn compute_mel(samples: &[f32], config: &MelConfig) -> Array2<f32> {
     let sr = config.sample_rate as f32;
     let f_max = config.f_max.unwrap_or(sr / 2.0);
@@ -152,7 +147,7 @@ fn compute_fbank(samples: &[f32], config: &MelConfig, sr: f32, f_max: f32) -> Ar
 }
 
 /// Standard mel spectrogram (GigaAM-style): windowed STFT + mel filterbank + log.
-/// Returns [num_mels, num_frames].
+/// Returns [num_frames, num_mels].
 fn compute_mel_spectrogram(
     samples: &[f32],
     config: &MelConfig,
@@ -163,7 +158,7 @@ fn compute_mel_spectrogram(
     let hop_length = config.hop_length;
 
     if samples.len() < n_fft {
-        return Array2::zeros((config.num_mels, 0));
+        return Array2::zeros((0, config.num_mels));
     }
 
     let n_frames = (samples.len() - n_fft) / hop_length + 1;
@@ -194,8 +189,8 @@ fn compute_mel_spectrogram(
     // Apply mel filterbank: [num_mels, freq_bins] @ [freq_bins, n_frames] = [num_mels, n_frames]
     let mel = filterbank.dot(&power_spec);
 
-    // Log scaling with clamping
-    mel.mapv(|v| v.clamp(1e-9, 1e9).ln())
+    // Log scaling with clamping, then transpose to [n_frames, num_mels]
+    mel.mapv(|v| v.clamp(1e-9, 1e9).ln()).t().to_owned()
 }
 
 /// Generate a window function of the given type and length.

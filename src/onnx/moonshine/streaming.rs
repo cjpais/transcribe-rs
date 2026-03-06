@@ -1,28 +1,18 @@
-use ndarray::{Array2, ArrayD, ArrayViewD, IxDyn};
+use ndarray::{ArrayD, ArrayViewD, IxDyn};
 use ort::inputs;
 use ort::session::Session;
 use ort::value::TensorRef;
-use std::collections::HashMap;
 use std::fs;
 use std::fs::File;
-use std::io::{BufReader, Read};
+use std::io::Read;
 use std::path::Path;
 
-use super::session;
-use crate::{ModelCapabilities, SpeechModel, TranscriptionResult};
+use crate::onnx::session;
+use crate::{ModelCapabilities, SpeechModel, TranscribeError, TranscriptionResult};
 
-const DECODER_START_TOKEN_ID: i64 = 1;
-const EOS_TOKEN_ID: i64 = 2;
-const SAMPLE_RATE: u32 = 16000;
+use super::SAMPLE_RATE;
+
 const CHUNK_SIZE: usize = 1280;
-
-const CAPABILITIES: ModelCapabilities = ModelCapabilities {
-    name: "Moonshine",
-    languages: &["en"],
-    supports_timestamps: false,
-    supports_translation: false,
-    supports_streaming: false,
-};
 
 const STREAMING_CAPABILITIES: ModelCapabilities = ModelCapabilities {
     name: "Moonshine Streaming",
@@ -32,79 +22,6 @@ const STREAMING_CAPABILITIES: ModelCapabilities = ModelCapabilities {
     supports_streaming: true,
 };
 
-/// Moonshine model variant.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MoonshineVariant {
-    Tiny,
-    TinyAr,
-    TinyZh,
-    TinyJa,
-    TinyKo,
-    TinyUk,
-    TinyVi,
-    Base,
-    BaseEs,
-}
-
-impl MoonshineVariant {
-    pub fn num_layers(&self) -> usize {
-        match self {
-            MoonshineVariant::Tiny
-            | MoonshineVariant::TinyAr
-            | MoonshineVariant::TinyZh
-            | MoonshineVariant::TinyJa
-            | MoonshineVariant::TinyKo
-            | MoonshineVariant::TinyUk
-            | MoonshineVariant::TinyVi => 6,
-            MoonshineVariant::Base | MoonshineVariant::BaseEs => 8,
-        }
-    }
-
-    pub fn num_key_value_heads(&self) -> usize {
-        8
-    }
-
-    pub fn head_dim(&self) -> usize {
-        match self {
-            MoonshineVariant::Tiny
-            | MoonshineVariant::TinyAr
-            | MoonshineVariant::TinyZh
-            | MoonshineVariant::TinyJa
-            | MoonshineVariant::TinyKo
-            | MoonshineVariant::TinyUk
-            | MoonshineVariant::TinyVi => 36,
-            MoonshineVariant::Base | MoonshineVariant::BaseEs => 52,
-        }
-    }
-
-    pub fn token_rate(&self) -> usize {
-        match self {
-            MoonshineVariant::Tiny | MoonshineVariant::Base | MoonshineVariant::BaseEs => 6,
-            MoonshineVariant::TinyUk => 8,
-            MoonshineVariant::TinyAr
-            | MoonshineVariant::TinyZh
-            | MoonshineVariant::TinyJa
-            | MoonshineVariant::TinyKo
-            | MoonshineVariant::TinyVi => 13,
-        }
-    }
-}
-
-impl Default for MoonshineVariant {
-    fn default() -> Self {
-        MoonshineVariant::Tiny
-    }
-}
-
-/// Per-model inference parameters for Moonshine.
-#[derive(Debug, Clone, Default)]
-pub struct MoonshineParams {
-    /// Language hint (currently unused).
-    pub language: Option<String>,
-    /// Maximum number of tokens to generate.
-    pub max_length: Option<usize>,
-}
-
 /// Per-model inference parameters for Moonshine Streaming.
 #[derive(Debug, Clone, Default)]
 pub struct MoonshineStreamingParams {
@@ -113,400 +30,6 @@ pub struct MoonshineStreamingParams {
     /// Maximum number of tokens to generate.
     pub max_length: Option<usize>,
 }
-
-// ---- Standard (non-streaming) Moonshine ----
-
-pub struct MoonshineModel {
-    encoder: Session,
-    decoder: Session,
-    tokenizer: MoonshineTokenizer,
-    variant: MoonshineVariant,
-    encoder_input_names: Vec<String>,
-    decoder_input_names: Vec<String>,
-}
-
-impl MoonshineModel {
-    pub fn load(model_dir: &Path, variant: MoonshineVariant) -> Result<Self, Box<dyn std::error::Error>> {
-        let encoder_path = model_dir.join("encoder_model.onnx");
-        let decoder_path = model_dir.join("decoder_model_merged.onnx");
-
-        if !encoder_path.exists() {
-            return Err(format!("Model not found: {}", encoder_path.display()).into());
-        }
-        if !decoder_path.exists() {
-            return Err(format!("Model not found: {}", decoder_path.display()).into());
-        }
-
-        log::info!("Loading Moonshine encoder from {:?}...", encoder_path);
-        let encoder = session::create_session(&encoder_path)?;
-
-        log::info!("Loading Moonshine decoder from {:?}...", decoder_path);
-        let decoder = session::create_session(&decoder_path)?;
-
-        let encoder_input_names: Vec<String> =
-            encoder.inputs.iter().map(|i| i.name.clone()).collect();
-        let decoder_input_names: Vec<String> =
-            decoder.inputs.iter().map(|i| i.name.clone()).collect();
-
-        let tokenizer = MoonshineTokenizer::new(model_dir)?;
-
-        Ok(Self {
-            encoder,
-            decoder,
-            tokenizer,
-            variant,
-            encoder_input_names,
-            decoder_input_names,
-        })
-    }
-
-    /// Transcribe with model-specific parameters.
-    pub fn transcribe_with(
-        &mut self,
-        samples: &[f32],
-        params: &MoonshineParams,
-    ) -> Result<TranscriptionResult, Box<dyn std::error::Error>> {
-        let max_length = params.max_length.unwrap_or_else(|| {
-            let audio_duration_sec = samples.len() as f32 / SAMPLE_RATE as f32;
-            (audio_duration_sec * self.variant.token_rate() as f32).ceil() as usize
-        });
-
-        self.infer(samples, max_length)
-    }
-
-    fn infer(
-        &mut self,
-        samples: &[f32],
-        max_length: usize,
-    ) -> Result<TranscriptionResult, Box<dyn std::error::Error>> {
-        log::debug!(
-            "Transcribing {} samples ({:.2}s), max_length={}",
-            samples.len(),
-            samples.len() as f32 / SAMPLE_RATE as f32,
-            max_length
-        );
-
-        let tokens = self.generate(samples, max_length)?;
-        let text = self.decode_tokens(&tokens)?;
-
-        Ok(TranscriptionResult {
-            text,
-            segments: None,
-        })
-    }
-
-    fn encode(&mut self, audio: &Array2<f32>) -> Result<ArrayD<f32>, Box<dyn std::error::Error>> {
-        let audio_dyn = audio.clone().into_dyn();
-
-        let outputs = if self
-            .encoder_input_names
-            .contains(&"attention_mask".to_string())
-        {
-            let attention_mask =
-                Array2::<i64>::ones((audio.shape()[0], audio.shape()[1])).into_dyn();
-            let inputs = inputs![
-                "input_values" => TensorRef::from_array_view(audio_dyn.view())?,
-                "attention_mask" => TensorRef::from_array_view(attention_mask.view())?,
-            ];
-            self.encoder.run(inputs)?
-        } else {
-            let inputs = inputs![
-                "input_values" => TensorRef::from_array_view(audio_dyn.view())?,
-            ];
-            self.encoder.run(inputs)?
-        };
-
-        let hidden_state = outputs
-            .get("last_hidden_state")
-            .ok_or("Missing output: last_hidden_state")?
-            .try_extract_array::<f32>()?;
-
-        Ok(hidden_state.to_owned())
-    }
-
-    fn generate(
-        &mut self,
-        samples: &[f32],
-        max_length: usize,
-    ) -> Result<Vec<i64>, Box<dyn std::error::Error>> {
-        let audio_duration = samples.len() as f32 / SAMPLE_RATE as f32;
-        if audio_duration < 0.1 || audio_duration > 64.0 {
-            return Err(format!(
-                "Audio duration must be between 0.1s and 64s, got {:.2}s",
-                audio_duration
-            ).into());
-        }
-
-        let audio = Array2::from_shape_vec((1, samples.len()), samples.to_vec())?;
-        let audio_attention_mask = Array2::<i64>::ones((1, samples.len()));
-
-        let encoder_hidden_states = self.encode(&audio)?;
-
-        let mut cache = KVCache::new(&self.variant);
-        let mut tokens: Vec<i64> = vec![DECODER_START_TOKEN_ID];
-        let mut input_ids = Array2::from_shape_vec((1, 1), vec![DECODER_START_TOKEN_ID])?;
-
-        for i in 0..max_length {
-            let use_cache_branch = i > 0;
-
-            let input_ids_dyn = input_ids.clone().into_dyn();
-            let use_cache_branch_arr = ndarray::arr1(&[use_cache_branch]).into_dyn();
-
-            let cache_inputs = cache.get_inputs();
-
-            let mut ort_inputs: Vec<(std::borrow::Cow<'_, str>, ort::value::DynValue)> = vec![
-                (
-                    "input_ids".into(),
-                    ort::value::Value::from_array(input_ids_dyn)?.into_dyn(),
-                ),
-                (
-                    "encoder_hidden_states".into(),
-                    ort::value::Value::from_array(encoder_hidden_states.clone())?.into_dyn(),
-                ),
-                (
-                    "use_cache_branch".into(),
-                    ort::value::Value::from_array(use_cache_branch_arr)?.into_dyn(),
-                ),
-            ];
-
-            if self
-                .decoder_input_names
-                .contains(&"encoder_attention_mask".to_string())
-            {
-                let mask_dyn = audio_attention_mask.clone().into_dyn();
-                ort_inputs.push((
-                    "encoder_attention_mask".into(),
-                    ort::value::Value::from_array(mask_dyn)?.into_dyn(),
-                ));
-            }
-
-            for (name, arr) in cache_inputs {
-                ort_inputs.push((name.into(), ort::value::Value::from_array(arr)?.into_dyn()));
-            }
-
-            let outputs = self.decoder.run(ort_inputs)?;
-
-            let logits = outputs
-                .get("logits")
-                .ok_or("Missing output: logits")?
-                .try_extract_array::<f32>()?;
-
-            let logits_shape = logits.shape();
-            let last_pos = logits_shape[1] - 1;
-
-            let last_logits = logits.slice(ndarray::s![0, last_pos, ..]);
-            let next_token = last_logits
-                .iter()
-                .enumerate()
-                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                .map(|(idx, _)| idx as i64)
-                .unwrap_or(EOS_TOKEN_ID);
-
-            tokens.push(next_token);
-
-            if next_token == EOS_TOKEN_ID {
-                break;
-            }
-
-            input_ids = Array2::from_shape_vec((1, 1), vec![next_token])?;
-            cache.update_from_outputs(&outputs, use_cache_branch)?;
-        }
-
-        Ok(tokens)
-    }
-
-    fn decode_tokens(&self, tokens: &[i64]) -> Result<String, Box<dyn std::error::Error>> {
-        self.tokenizer.decode(tokens)
-    }
-}
-
-impl SpeechModel for MoonshineModel {
-    fn capabilities(&self) -> ModelCapabilities {
-        CAPABILITIES
-    }
-
-    fn transcribe(
-        &mut self,
-        samples: &[f32],
-        _language: Option<&str>,
-    ) -> Result<TranscriptionResult, Box<dyn std::error::Error>> {
-        let max_length = {
-            let audio_duration_sec = samples.len() as f32 / SAMPLE_RATE as f32;
-            (audio_duration_sec * self.variant.token_rate() as f32).ceil() as usize
-        };
-        self.infer(samples, max_length)
-    }
-}
-
-// ---- KV Cache ----
-
-struct KVCache {
-    cache: HashMap<String, ArrayD<f32>>,
-    num_layers: usize,
-}
-
-impl KVCache {
-    fn new(variant: &MoonshineVariant) -> Self {
-        let num_layers = variant.num_layers();
-        let num_heads = variant.num_key_value_heads();
-        let head_dim = variant.head_dim();
-
-        let mut cache = HashMap::new();
-
-        for i in 0..num_layers {
-            for attention_type in &["decoder", "encoder"] {
-                for kv_type in &["key", "value"] {
-                    let key = format!("past_key_values.{}.{}.{}", i, attention_type, kv_type);
-                    let empty_tensor = ArrayD::<f32>::zeros(IxDyn(&[0, num_heads, 1, head_dim]));
-                    cache.insert(key, empty_tensor);
-                }
-            }
-        }
-
-        Self { cache, num_layers }
-    }
-
-    fn get_inputs(&self) -> Vec<(String, ArrayD<f32>)> {
-        let mut inputs = Vec::new();
-
-        for i in 0..self.num_layers {
-            for attention_type in &["decoder", "encoder"] {
-                for kv_type in &["key", "value"] {
-                    let key = format!("past_key_values.{}.{}.{}", i, attention_type, kv_type);
-                    if let Some(tensor) = self.cache.get(&key) {
-                        inputs.push((key, tensor.clone()));
-                    }
-                }
-            }
-        }
-
-        inputs
-    }
-
-    fn update_from_outputs(
-        &mut self,
-        outputs: &ort::session::SessionOutputs,
-        use_cache_branch: bool,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        for i in 0..self.num_layers {
-            for attention_type in &["decoder", "encoder"] {
-                if use_cache_branch && *attention_type == "encoder" {
-                    continue;
-                }
-
-                for kv_type in &["key", "value"] {
-                    let output_key = format!("present.{}.{}.{}", i, attention_type, kv_type);
-                    let cache_key =
-                        format!("past_key_values.{}.{}.{}", i, attention_type, kv_type);
-
-                    if let Some(output) = outputs.get(&output_key) {
-                        let tensor = output.try_extract_array::<f32>()?;
-                        self.cache.insert(cache_key, tensor.to_owned());
-                    }
-                }
-            }
-        }
-
-        Ok(())
-    }
-}
-
-// ---- Tokenizer ----
-
-struct MoonshineTokenizer {
-    vocab: HashMap<u32, String>,
-    special_token_ids: Vec<u32>,
-}
-
-impl MoonshineTokenizer {
-    fn new(model_dir: &Path) -> Result<Self, Box<dyn std::error::Error>> {
-        let tokenizer_path = model_dir.join("tokenizer.json");
-
-        if !tokenizer_path.exists() {
-            return Err(format!("Tokenizer not found: {}", tokenizer_path.display()).into());
-        }
-
-        let file = File::open(&tokenizer_path)?;
-        let reader = BufReader::new(file);
-        let json: serde_json::Value = serde_json::from_reader(reader)?;
-
-        let mut vocab = HashMap::new();
-        if let Some(model) = json.get("model") {
-            if let Some(v) = model.get("vocab").and_then(|v| v.as_object()) {
-                for (token, id) in v {
-                    if let Some(id) = id.as_u64() {
-                        vocab.insert(id as u32, token.clone());
-                    }
-                }
-            }
-        }
-
-        if vocab.is_empty() {
-            return Err("No vocabulary found in tokenizer.json".into());
-        }
-
-        let mut special_token_ids = Vec::new();
-        if let Some(added_tokens) = json.get("added_tokens").and_then(|v| v.as_array()) {
-            for token in added_tokens {
-                let is_special = token
-                    .get("special")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-                if is_special {
-                    if let Some(id) = token.get("id").and_then(|v| v.as_u64()) {
-                        special_token_ids.push(id as u32);
-                    }
-                }
-            }
-        }
-
-        Ok(Self {
-            vocab,
-            special_token_ids,
-        })
-    }
-
-    fn decode(&self, token_ids: &[i64]) -> Result<String, Box<dyn std::error::Error>> {
-        let mut tokens: Vec<String> = Vec::with_capacity(token_ids.len());
-
-        for &id in token_ids {
-            let id = id as u32;
-            if self.special_token_ids.contains(&id) {
-                continue;
-            }
-            if let Some(token) = self.vocab.get(&id) {
-                tokens.push(token.clone());
-            }
-        }
-
-        let mut bytes: Vec<u8> = Vec::new();
-
-        for token in &tokens {
-            if let Some(byte_val) = Self::parse_byte_token(token) {
-                bytes.push(byte_val);
-            } else {
-                let decoded = token.replace('▁', " ");
-                bytes.extend(decoded.as_bytes());
-            }
-        }
-
-        let text = String::from_utf8_lossy(&bytes);
-        let text = text.strip_prefix(' ').unwrap_or(&text);
-
-        Ok(text.to_string())
-    }
-
-    fn parse_byte_token(token: &str) -> Option<u8> {
-        if token.starts_with("<0x") && token.ends_with('>') && token.len() == 6 {
-            let hex = &token[3..5];
-            u8::from_str_radix(hex, 16).ok()
-        } else {
-            None
-        }
-    }
-}
-
-// ---- Streaming Moonshine ----
 
 /// Streaming model configuration parsed from `streaming_config.json`.
 #[derive(Debug, Clone)]
@@ -528,10 +51,10 @@ pub struct StreamingConfig {
 }
 
 impl StreamingConfig {
-    fn load(model_dir: &Path) -> Result<Self, Box<dyn std::error::Error>> {
+    fn load(model_dir: &Path) -> Result<Self, TranscribeError> {
         let config_path = model_dir.join("streaming_config.json");
         if !config_path.exists() {
-            return Err(format!("Config not found: {}", config_path.display()).into());
+            return Err(TranscribeError::ModelNotFound(config_path));
         }
 
         let contents = fs::read_to_string(&config_path)?;
@@ -570,9 +93,9 @@ impl StreamingConfig {
         };
 
         if config.depth == 0 || config.decoder_dim == 0 || config.vocab_size == 0 {
-            return Err(
-                "Invalid streaming config: depth, decoder_dim, and vocab_size must be > 0".into(),
-            );
+            return Err(TranscribeError::Config(
+                "Invalid streaming config: depth, decoder_dim, and vocab_size must be > 0".to_string(),
+            ));
         }
 
         Ok(config)
@@ -662,11 +185,11 @@ struct BinTokenizer {
 }
 
 impl BinTokenizer {
-    fn new(path: &Path) -> Result<Self, Box<dyn std::error::Error>> {
+    fn new(path: &Path) -> Result<Self, TranscribeError> {
         let tokenizer_path = path.join("tokenizer.bin");
 
         if !tokenizer_path.exists() {
-            return Err(format!("Tokenizer not found: {}", tokenizer_path.display()).into());
+            return Err(TranscribeError::ModelNotFound(tokenizer_path));
         }
 
         let mut file = File::open(&tokenizer_path)?;
@@ -706,13 +229,13 @@ impl BinTokenizer {
         }
 
         if tokens_to_bytes.is_empty() {
-            return Err("No tokens found in tokenizer.bin".into());
+            return Err(TranscribeError::Config("No tokens found in tokenizer.bin".to_string()));
         }
 
         Ok(Self { tokens_to_bytes })
     }
 
-    fn decode(&self, tokens: &[i64]) -> Result<String, Box<dyn std::error::Error>> {
+    fn decode(&self, tokens: &[i64]) -> Result<String, TranscribeError> {
         let mut result_bytes: Vec<u8> = Vec::new();
 
         for &token in tokens {
@@ -753,10 +276,10 @@ impl StreamingModel {
     pub fn load(
         model_dir: &Path,
         num_threads: usize,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    ) -> Result<Self, TranscribeError> {
         let config = StreamingConfig::load(model_dir)?;
 
-        let load = |name: &str| -> Result<Session, Box<dyn std::error::Error>> {
+        let load = |name: &str| -> Result<Session, TranscribeError> {
             let ort_path = model_dir.join(format!("{}.ort", name));
             let onnx_path = model_dir.join(format!("{}.onnx", name));
 
@@ -765,12 +288,7 @@ impl StreamingModel {
             } else if onnx_path.exists() {
                 onnx_path
             } else {
-                return Err(format!(
-                    "{}.ort or {}.onnx not found in {}",
-                    name,
-                    name,
-                    model_dir.display()
-                ).into());
+                return Err(TranscribeError::ModelNotFound(model_dir.join(format!("{}.ort", name))));
             };
 
             Ok(session::create_session_with_threads(&path, num_threads)?)
@@ -802,7 +320,7 @@ impl StreamingModel {
         &mut self,
         samples: &[f32],
         params: &MoonshineStreamingParams,
-    ) -> Result<TranscriptionResult, Box<dyn std::error::Error>> {
+    ) -> Result<TranscriptionResult, TranscribeError> {
         let tokens = self.generate(samples, 6.5, params.max_length)?;
         let text = self.tokenizer.decode(&tokens)?;
 
@@ -820,7 +338,7 @@ impl StreamingModel {
         &mut self,
         state: &mut StreamingState,
         audio_chunk: &[f32],
-    ) -> Result<i32, Box<dyn std::error::Error>> {
+    ) -> Result<i32, TranscribeError> {
         if audio_chunk.is_empty() {
             return Ok(0);
         }
@@ -849,27 +367,34 @@ impl StreamingModel {
         let frame_count_dyn =
             ArrayD::from_shape_vec(IxDyn(&[1]), vec![state.frame_count])?;
 
+        let t_audio_chunk = TensorRef::from_array_view(audio_dyn.view())?;
+        let t_sample_buffer = TensorRef::from_array_view(sample_buffer_dyn.view())?;
+        let t_sample_len = TensorRef::from_array_view(sample_len_dyn.view())?;
+        let t_conv1_buffer = TensorRef::from_array_view(conv1_dyn.view())?;
+        let t_conv2_buffer = TensorRef::from_array_view(conv2_dyn.view())?;
+        let t_frame_count = TensorRef::from_array_view(frame_count_dyn.view())?;
         let run_inputs = inputs![
-            "audio_chunk" => TensorRef::from_array_view(audio_dyn.view())?,
-            "sample_buffer" => TensorRef::from_array_view(sample_buffer_dyn.view())?,
-            "sample_len" => TensorRef::from_array_view(sample_len_dyn.view())?,
-            "conv1_buffer" => TensorRef::from_array_view(conv1_dyn.view())?,
-            "conv2_buffer" => TensorRef::from_array_view(conv2_dyn.view())?,
-            "frame_count" => TensorRef::from_array_view(frame_count_dyn.view())?,
+            "audio_chunk" => t_audio_chunk,
+            "sample_buffer" => t_sample_buffer,
+            "sample_len" => t_sample_len,
+            "conv1_buffer" => t_conv1_buffer,
+            "conv2_buffer" => t_conv2_buffer,
+            "frame_count" => t_frame_count,
         ];
 
         let outputs = self.frontend.run(run_inputs)?;
 
         let features = outputs
             .get("features")
-            .ok_or("Missing output: features")?
+            .ok_or_else(|| TranscribeError::Inference("Missing output: features".to_string()))?
             .try_extract_array::<f32>()?;
 
         let feat_shape = features.shape();
         let num_features = feat_shape[1] as i32;
 
         if num_features > 0 {
-            let feat_data = features.as_slice().ok_or("features not contiguous")?;
+            let feat_data = features.as_slice()
+                .ok_or_else(|| TranscribeError::Inference("features not contiguous".to_string()))?;
             let feat_size = feat_shape[1] * feat_shape[2];
             state
                 .accumulated_features
@@ -880,19 +405,19 @@ impl StreamingModel {
         // Update frontend state from outputs
         let sample_buffer_out = outputs
             .get("sample_buffer_out")
-            .ok_or("Missing output: sample_buffer_out")?
+            .ok_or_else(|| TranscribeError::Inference("Missing output: sample_buffer_out".to_string()))?
             .try_extract_array::<f32>()?;
         state.sample_buffer = sample_buffer_out.as_slice().unwrap()[..79].to_vec();
 
         let sample_len_out = outputs
             .get("sample_len_out")
-            .ok_or("Missing output: sample_len_out")?
+            .ok_or_else(|| TranscribeError::Inference("Missing output: sample_len_out".to_string()))?
             .try_extract_array::<i64>()?;
         state.sample_len = sample_len_out.as_slice().unwrap()[0];
 
         let conv1_out = outputs
             .get("conv1_buffer_out")
-            .ok_or("Missing output: conv1_buffer_out")?
+            .ok_or_else(|| TranscribeError::Inference("Missing output: conv1_buffer_out".to_string()))?
             .try_extract_array::<f32>()?;
         let conv1_data = conv1_out.as_slice().unwrap();
         let conv1_expected = self.config.d_model_frontend * 4;
@@ -905,7 +430,7 @@ impl StreamingModel {
 
         let conv2_out = outputs
             .get("conv2_buffer_out")
-            .ok_or("Missing output: conv2_buffer_out")?
+            .ok_or_else(|| TranscribeError::Inference("Missing output: conv2_buffer_out".to_string()))?
             .try_extract_array::<f32>()?;
         let conv2_data = conv2_out.as_slice().unwrap();
         let conv2_expected = self.config.c1 * 4;
@@ -918,7 +443,7 @@ impl StreamingModel {
 
         let frame_count_out = outputs
             .get("frame_count_out")
-            .ok_or("Missing output: frame_count_out")?
+            .ok_or_else(|| TranscribeError::Inference("Missing output: frame_count_out".to_string()))?
             .try_extract_array::<i64>()?;
         state.frame_count = frame_count_out.as_slice().unwrap()[0];
 
@@ -929,7 +454,7 @@ impl StreamingModel {
         &mut self,
         state: &mut StreamingState,
         is_final: bool,
-    ) -> Result<i32, Box<dyn std::error::Error>> {
+    ) -> Result<i32, TranscribeError> {
         let total_features = state.accumulated_feature_count;
         if total_features == 0 {
             return Ok(0);
@@ -959,27 +484,29 @@ impl StreamingModel {
             window_features,
         )?;
 
+        let t_features = TensorRef::from_array_view(features_view)?;
         let enc_inputs = inputs![
-            "features" => TensorRef::from_array_view(features_view)?,
+            "features" => t_features,
         ];
 
         let enc_outputs = self.encoder.run(enc_inputs)?;
 
         let encoded = enc_outputs
             .get("encoded")
-            .ok_or("Missing output: encoded")?
+            .ok_or_else(|| TranscribeError::Inference("Missing output: encoded".to_string()))?
             .try_extract_array::<f32>()?;
 
         let enc_shape = encoded.shape();
         let total_encoded = enc_shape[1] as i32;
-        let encoded_data = encoded.as_slice().ok_or("encoded not contiguous")?;
+        let encoded_data = encoded.as_slice()
+            .ok_or_else(|| TranscribeError::Inference("encoded not contiguous".to_string()))?;
 
         let slice_start = (state.encoder_frames_emitted - window_start) as usize;
         if slice_start + new_frames as usize > total_encoded as usize {
-            return Err(format!(
+            return Err(TranscribeError::Inference(format!(
                 "Encoder window misaligned: start={}, new_frames={}, total={}",
                 slice_start, new_frames, total_encoded
-            ).into());
+            )));
         }
 
         let new_encoded: Vec<f32> = (0..new_frames as usize)
@@ -1001,19 +528,22 @@ impl StreamingModel {
         let pos_offset_view =
             ArrayViewD::from_shape(IxDyn(&[1]), &pos_offset_val)?;
 
+        let t_encoded = TensorRef::from_array_view(enc_slice_view)?;
+        let t_pos_offset = TensorRef::from_array_view(pos_offset_view)?;
         let adapter_inputs = inputs![
-            "encoded" => TensorRef::from_array_view(enc_slice_view)?,
-            "pos_offset" => TensorRef::from_array_view(pos_offset_view)?,
+            "encoded" => t_encoded,
+            "pos_offset" => t_pos_offset,
         ];
 
         let adapter_outputs = self.adapter.run(adapter_inputs)?;
 
         let memory_out = adapter_outputs
             .get("memory")
-            .ok_or("Missing output: memory")?
+            .ok_or_else(|| TranscribeError::Inference("Missing output: memory".to_string()))?
             .try_extract_array::<f32>()?;
 
-        let mem_data = memory_out.as_slice().ok_or("memory not contiguous")?;
+        let mem_data = memory_out.as_slice()
+            .ok_or_else(|| TranscribeError::Inference("memory not contiguous".to_string()))?;
         let mem_size = new_frames as usize * self.config.decoder_dim;
         state.memory.extend_from_slice(&mem_data[..mem_size]);
         state.memory_len += new_frames;
@@ -1028,9 +558,9 @@ impl StreamingModel {
     fn compute_cross_kv(
         &mut self,
         state: &mut StreamingState,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), TranscribeError> {
         if state.memory_len == 0 {
-            return Err("Memory is empty, cannot compute cross K/V".into());
+            return Err(TranscribeError::Inference("Memory is empty, cannot compute cross K/V".to_string()));
         }
 
         let memory_view = ArrayViewD::from_shape(
@@ -1038,20 +568,21 @@ impl StreamingModel {
             &state.memory,
         )?;
 
+        let t_memory = TensorRef::from_array_view(memory_view)?;
         let run_inputs = inputs![
-            "memory" => TensorRef::from_array_view(memory_view)?,
+            "memory" => t_memory,
         ];
 
         let outputs = self.cross_kv.run(run_inputs)?;
 
         let k_cross = outputs
             .get("k_cross")
-            .ok_or("Missing output: k_cross")?
+            .ok_or_else(|| TranscribeError::Inference("Missing output: k_cross".to_string()))?
             .try_extract_array::<f32>()?;
 
         let v_cross = outputs
             .get("v_cross")
-            .ok_or("Missing output: v_cross")?
+            .ok_or_else(|| TranscribeError::Inference("Missing output: v_cross".to_string()))?
             .try_extract_array::<f32>()?;
 
         let k_shape = k_cross.shape();
@@ -1071,7 +602,7 @@ impl StreamingModel {
         &mut self,
         state: &mut StreamingState,
         token: i64,
-    ) -> Result<ort::session::SessionOutputs<'_>, Box<dyn std::error::Error>> {
+    ) -> Result<ort::session::SessionOutputs<'_>, TranscribeError> {
         if !state.cross_kv_valid {
             self.compute_cross_kv(state)?;
         }
@@ -1109,24 +640,29 @@ impl StreamingModel {
         let k_cross_view = ArrayViewD::from_shape(IxDyn(cross_shape), &state.k_cross)?;
         let v_cross_view = ArrayViewD::from_shape(IxDyn(cross_shape), &state.v_cross)?;
 
+        let t_token = TensorRef::from_array_view(token_view)?;
+        let t_k_self = TensorRef::from_array_view(k_self_view)?;
+        let t_v_self = TensorRef::from_array_view(v_self_view)?;
+        let t_k_cross = TensorRef::from_array_view(k_cross_view)?;
+        let t_v_cross = TensorRef::from_array_view(v_cross_view)?;
         let run_inputs = inputs![
-            "token" => TensorRef::from_array_view(token_view)?,
-            "k_self" => TensorRef::from_array_view(k_self_view)?,
-            "v_self" => TensorRef::from_array_view(v_self_view)?,
-            "out_k_cross" => TensorRef::from_array_view(k_cross_view)?,
-            "out_v_cross" => TensorRef::from_array_view(v_cross_view)?,
+            "token" => t_token,
+            "k_self" => t_k_self,
+            "v_self" => t_v_self,
+            "out_k_cross" => t_k_cross,
+            "out_v_cross" => t_v_cross,
         ];
 
         let outputs = self.decoder_kv.run(run_inputs)?;
 
         let k_self_out = outputs
             .get("out_k_self")
-            .ok_or("Missing output: out_k_self")?
+            .ok_or_else(|| TranscribeError::Inference("Missing output: out_k_self".to_string()))?
             .try_extract_array::<f32>()?;
 
         let v_self_out = outputs
             .get("out_v_self")
-            .ok_or("Missing output: out_v_self")?
+            .ok_or_else(|| TranscribeError::Inference("Missing output: out_v_self".to_string()))?
             .try_extract_array::<f32>()?;
 
         let new_cache_len = k_self_out.shape()[3] as i32;
@@ -1151,13 +687,13 @@ impl StreamingModel {
         &mut self,
         state: &mut StreamingState,
         token: i64,
-    ) -> Result<i64, Box<dyn std::error::Error>> {
+    ) -> Result<i64, TranscribeError> {
         let vocab_size = self.config.vocab_size;
         let outputs = self.run_decoder(state, token)?;
 
         let logits = outputs
             .get("logits")
-            .ok_or("Missing output: logits")?
+            .ok_or_else(|| TranscribeError::Inference("Missing output: logits".to_string()))?
             .try_extract_array::<f32>()?;
 
         let logits_data = logits.as_slice().unwrap();
@@ -1180,7 +716,7 @@ impl StreamingModel {
         samples: &[f32],
         max_tokens_per_second: f32,
         max_tokens_override: Option<usize>,
-    ) -> Result<Vec<i64>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<i64>, TranscribeError> {
         let mut state = self.create_state();
 
         for chunk in samples.chunks(CHUNK_SIZE) {
@@ -1231,7 +767,7 @@ impl SpeechModel for StreamingModel {
         &mut self,
         samples: &[f32],
         _language: Option<&str>,
-    ) -> Result<TranscriptionResult, Box<dyn std::error::Error>> {
+    ) -> Result<TranscriptionResult, TranscribeError> {
         let tokens = self.generate(samples, 6.5, None)?;
         let text = self.tokenizer.decode(&tokens)?;
 

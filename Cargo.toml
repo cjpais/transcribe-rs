@@ -9,8 +9,11 @@ repository = "https://github.com/cjpais/transcribe-rs"
 [features]
 default = []
 
+# Shared audio feature extraction (mel spectrogram, CTC decode, etc.)
+audio-features = ["dep:ndarray", "dep:rustfft"]
+
 # ONNX-based models (SenseVoice, GigaAM, Parakeet, Moonshine)
-onnx = ["dep:ort", "dep:ndarray", "dep:rustfft", "dep:base64", "dep:regex", "dep:once_cell"]
+onnx = ["audio-features", "dep:ort", "dep:base64", "dep:regex", "dep:once_cell"]
 
 # Whisper via whisper.cpp
 whisper-cpp = ["dep:whisper-rs"]
@@ -27,6 +30,7 @@ all = ["onnx", "whisper-cpp", "whisperfile", "openai"]
 
 [dependencies]
 # Always required
+thiserror = "2"
 hound = "3.5.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

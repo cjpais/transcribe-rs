@@ -9,7 +9,7 @@ use std::path::Path;
 use crate::decode::tokens::load_vocab;
 use super::session;
 use super::Quantization;
-use crate::{ModelCapabilities, SpeechModel, TranscriptionResult, TranscriptionSegment};
+use crate::{ModelCapabilities, SpeechModel, TranscribeError, TranscriptionResult, TranscriptionSegment};
 
 /// Timestamp granularity for Parakeet output.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -90,7 +90,7 @@ impl ParakeetModel {
     pub fn load(
         model_dir: &Path,
         quantization: &Quantization,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    ) -> Result<Self, TranscribeError> {
         let quantized = matches!(quantization, Quantization::Int8);
 
         let encoder_path = session::resolve_model_path(model_dir, "encoder-model", quantized);
@@ -133,7 +133,7 @@ impl ParakeetModel {
         &mut self,
         samples: &[f32],
         params: &ParakeetParams,
-    ) -> Result<TranscriptionResult, Box<dyn std::error::Error>> {
+    ) -> Result<TranscriptionResult, TranscribeError> {
         let granularity = params
             .timestamp_granularity
             .clone()
@@ -146,7 +146,7 @@ impl ParakeetModel {
         &mut self,
         samples: &[f32],
         granularity: &TimestampGranularity,
-    ) -> Result<TranscriptionResult, Box<dyn std::error::Error>> {
+    ) -> Result<TranscriptionResult, TranscribeError> {
         let timestamped_result = self.transcribe_samples_internal(samples.to_vec())?;
         let segments = convert_timestamps(&timestamped_result, granularity);
 
@@ -160,20 +160,22 @@ impl ParakeetModel {
         &mut self,
         waveforms: &ArrayViewD<f32>,
         waveforms_lens: &ArrayViewD<i64>,
-    ) -> Result<(ArrayD<f32>, ArrayD<i64>), Box<dyn std::error::Error>> {
+    ) -> Result<(ArrayD<f32>, ArrayD<i64>), TranscribeError> {
+        let t_waveforms = TensorRef::from_array_view(waveforms.view())?;
+        let t_waveforms_lens = TensorRef::from_array_view(waveforms_lens.view())?;
         let inputs = inputs![
-            "waveforms" => TensorRef::from_array_view(waveforms.view())?,
-            "waveforms_lens" => TensorRef::from_array_view(waveforms_lens.view())?,
+            "waveforms" => t_waveforms,
+            "waveforms_lens" => t_waveforms_lens,
         ];
         let outputs = self.preprocessor.run(inputs)?;
 
         let features = outputs
             .get("features")
-            .ok_or("Missing output: features")?
+            .ok_or_else(|| TranscribeError::Inference("Missing output: features".to_string()))?
             .try_extract_array()?;
         let features_lens = outputs
             .get("features_lens")
-            .ok_or("Missing output: features_lens")?
+            .ok_or_else(|| TranscribeError::Inference("Missing output: features_lens".to_string()))?
             .try_extract_array()?;
 
         Ok((features.to_owned(), features_lens.to_owned()))
@@ -183,20 +185,22 @@ impl ParakeetModel {
         &mut self,
         audio_signal: &ArrayViewD<f32>,
         length: &ArrayViewD<i64>,
-    ) -> Result<(ArrayD<f32>, ArrayD<i64>), Box<dyn std::error::Error>> {
+    ) -> Result<(ArrayD<f32>, ArrayD<i64>), TranscribeError> {
+        let t_audio_signal = TensorRef::from_array_view(audio_signal.view())?;
+        let t_length = TensorRef::from_array_view(length.view())?;
         let inputs = inputs![
-            "audio_signal" => TensorRef::from_array_view(audio_signal.view())?,
-            "length" => TensorRef::from_array_view(length.view())?,
+            "audio_signal" => t_audio_signal,
+            "length" => t_length,
         ];
         let outputs = self.encoder.run(inputs)?;
 
         let encoder_output = outputs
             .get("outputs")
-            .ok_or("Missing output: outputs")?
+            .ok_or_else(|| TranscribeError::Inference("Missing output: outputs".to_string()))?
             .try_extract_array()?;
         let encoded_lengths = outputs
             .get("encoded_lengths")
-            .ok_or("Missing output: encoded_lengths")?
+            .ok_or_else(|| TranscribeError::Inference("Missing output: encoded_lengths".to_string()))?
             .try_extract_array()?;
 
         let encoder_output = encoder_output.permuted_axes(IxDyn(&[0, 2, 1]));
@@ -204,24 +208,24 @@ impl ParakeetModel {
         Ok((encoder_output.to_owned(), encoded_lengths.to_owned()))
     }
 
-    fn create_decoder_state(&self) -> Result<DecoderState, Box<dyn std::error::Error>> {
+    fn create_decoder_state(&self) -> Result<DecoderState, TranscribeError> {
         let inputs = &self.decoder_joint.inputs;
 
         let state1_shape = inputs
             .iter()
             .find(|input| input.name == "input_states_1")
-            .ok_or("Missing input: input_states_1")?
+            .ok_or_else(|| TranscribeError::Inference("Missing input: input_states_1".to_string()))?
             .input_type
             .tensor_shape()
-            .ok_or("Failed to get tensor shape for input_states_1")?;
+            .ok_or_else(|| TranscribeError::Inference("Failed to get tensor shape for input_states_1".to_string()))?;
 
         let state2_shape = inputs
             .iter()
             .find(|input| input.name == "input_states_2")
-            .ok_or("Missing input: input_states_2")?
+            .ok_or_else(|| TranscribeError::Inference("Missing input: input_states_2".to_string()))?
             .input_type
             .tensor_shape()
-            .ok_or("Failed to get tensor shape for input_states_2")?;
+            .ok_or_else(|| TranscribeError::Inference("Failed to get tensor shape for input_states_2".to_string()))?;
 
         let state1 = Array::zeros((
             state1_shape[0] as usize,
@@ -243,7 +247,7 @@ impl ParakeetModel {
         prev_tokens: &[i32],
         prev_state: &DecoderState,
         encoder_out: &ArrayViewD<f32>,
-    ) -> Result<(ArrayD<f32>, DecoderState), Box<dyn std::error::Error>> {
+    ) -> Result<(ArrayD<f32>, DecoderState), TranscribeError> {
         let target_token = prev_tokens.last().copied().unwrap_or(self.blank_idx);
 
         let encoder_outputs = encoder_out
@@ -253,27 +257,32 @@ impl ParakeetModel {
         let targets = Array2::from_shape_vec((1, 1), vec![target_token])?;
         let target_length = Array1::from_vec(vec![1]);
 
+        let t_encoder_outputs = TensorRef::from_array_view(encoder_outputs.view())?;
+        let t_targets = TensorRef::from_array_view(targets.view())?;
+        let t_target_length = TensorRef::from_array_view(target_length.view())?;
+        let t_input_states_1 = TensorRef::from_array_view(prev_state.0.view())?;
+        let t_input_states_2 = TensorRef::from_array_view(prev_state.1.view())?;
         let inputs = inputs![
-            "encoder_outputs" => TensorRef::from_array_view(encoder_outputs.view())?,
-            "targets" => TensorRef::from_array_view(targets.view())?,
-            "target_length" => TensorRef::from_array_view(target_length.view())?,
-            "input_states_1" => TensorRef::from_array_view(prev_state.0.view())?,
-            "input_states_2" => TensorRef::from_array_view(prev_state.1.view())?,
+            "encoder_outputs" => t_encoder_outputs,
+            "targets" => t_targets,
+            "target_length" => t_target_length,
+            "input_states_1" => t_input_states_1,
+            "input_states_2" => t_input_states_2,
         ];
 
         let outputs = self.decoder_joint.run(inputs)?;
 
         let logits = outputs
             .get("outputs")
-            .ok_or("Missing output: outputs")?
+            .ok_or_else(|| TranscribeError::Inference("Missing output: outputs".to_string()))?
             .try_extract_array()?;
         let state1 = outputs
             .get("output_states_1")
-            .ok_or("Missing output: output_states_1")?
+            .ok_or_else(|| TranscribeError::Inference("Missing output: output_states_1".to_string()))?
             .try_extract_array()?;
         let state2 = outputs
             .get("output_states_2")
-            .ok_or("Missing output: output_states_2")?
+            .ok_or_else(|| TranscribeError::Inference("Missing output: output_states_2".to_string()))?
             .try_extract_array()?;
 
         let logits = logits.remove_axis(ndarray::Axis(0));
@@ -288,7 +297,7 @@ impl ParakeetModel {
         &mut self,
         waveforms: &ArrayViewD<f32>,
         waveforms_len: &ArrayViewD<i64>,
-    ) -> Result<Vec<TimestampedResult>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<TimestampedResult>, TranscribeError> {
         let (features, features_lens) = self.preprocess(waveforms, waveforms_len)?;
         let (encoder_out, encoder_out_lens) =
             self.encode(&features.view(), &features_lens.view())?;
@@ -308,7 +317,7 @@ impl ParakeetModel {
         &mut self,
         encodings: &ArrayViewD<f32>,
         encodings_len: usize,
-    ) -> Result<(Vec<i32>, Vec<usize>), Box<dyn std::error::Error>> {
+    ) -> Result<(Vec<i32>, Vec<usize>), TranscribeError> {
         let mut prev_state = self.create_decoder_state()?;
         let mut tokens = Vec::new();
         let mut timestamps = Vec::new();
@@ -322,7 +331,8 @@ impl ParakeetModel {
             let (probs, new_state) =
                 self.decode_step(&tokens, &prev_state, &encoder_step_dyn.view())?;
 
-            let vocab_logits_slice = probs.as_slice().ok_or("Logits not contiguous")?;
+            let vocab_logits_slice = probs.as_slice()
+                .ok_or_else(|| TranscribeError::Inference("Logits not contiguous".to_string()))?;
 
             let vocab_logits = if probs.len() > self.vocab_size {
                 &vocab_logits_slice[..self.vocab_size]
@@ -394,7 +404,7 @@ impl ParakeetModel {
     fn transcribe_samples_internal(
         &mut self,
         samples: Vec<f32>,
-    ) -> Result<TimestampedResult, Box<dyn std::error::Error>> {
+    ) -> Result<TimestampedResult, TranscribeError> {
         let batch_size = 1;
         let samples_len = samples.len();
 
@@ -404,7 +414,7 @@ impl ParakeetModel {
         let results = self.recognize_batch(&waveforms.view(), &waveforms_lens.view())?;
 
         results.into_iter().next().ok_or_else(|| {
-            "No transcription result returned".into()
+            TranscribeError::Inference("No transcription result returned".to_string())
         })
     }
 }
@@ -418,7 +428,7 @@ impl SpeechModel for ParakeetModel {
         &mut self,
         samples: &[f32],
         _language: Option<&str>,
-    ) -> Result<TranscriptionResult, Box<dyn std::error::Error>> {
+    ) -> Result<TranscriptionResult, TranscribeError> {
         self.infer(samples, &TimestampGranularity::default())
     }
 }

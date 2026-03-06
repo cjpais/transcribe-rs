@@ -7,7 +7,7 @@ use transcribe_rs::SpeechModel;
 fn test_gigaam_transcribe() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
-    let model_path = PathBuf::from("models/v3_e2e_ctc.int8.onnx");
+    let model_path = PathBuf::from("models/giga-am-v3.int8.onnx");
     let wav_path = PathBuf::from("samples/russian.wav");
 
     if !model_path.exists() {

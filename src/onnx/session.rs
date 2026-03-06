@@ -79,9 +79,13 @@ pub fn read_metadata_i32(
     session: &Session,
     key: &str,
     default: Option<i32>,
-) -> Result<Option<i32>, Box<dyn std::error::Error>> {
-    match read_metadata_str(session, key)? {
-        Some(v) => Ok(Some(v.parse::<i32>()?)),
+) -> Result<Option<i32>, crate::TranscribeError> {
+    let str_val = read_metadata_str(session, key)
+        .map_err(|e| crate::TranscribeError::Config(format!("failed to read metadata '{}': {}", key, e)))?;
+    match str_val {
+        Some(v) => Ok(Some(v.parse::<i32>().map_err(|e| {
+            crate::TranscribeError::Config(format!("failed to parse '{}': {}", key, e))
+        })?)),
         None => Ok(default),
     }
 }
@@ -90,12 +94,16 @@ pub fn read_metadata_i32(
 pub fn read_metadata_float_vec(
     session: &Session,
     key: &str,
-) -> Result<Option<Vec<f32>>, Box<dyn std::error::Error>> {
-    match read_metadata_str(session, key)? {
+) -> Result<Option<Vec<f32>>, crate::TranscribeError> {
+    let str_val = read_metadata_str(session, key)
+        .map_err(|e| crate::TranscribeError::Config(format!("failed to read metadata '{}': {}", key, e)))?;
+    match str_val {
         Some(v) => {
             let floats: Result<Vec<f32>, _> =
                 v.split(',').map(|s| s.trim().parse::<f32>()).collect();
-            Ok(Some(floats?))
+            Ok(Some(floats.map_err(|e| {
+                crate::TranscribeError::Config(format!("failed to parse floats in '{}': {}", key, e))
+            })?))
         }
         None => Ok(None),
     }

@@ -2,7 +2,6 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use transcribe_rs::whisper_cpp::{WhisperEngine, WhisperInferenceParams};
-use transcribe_rs::SpeechModel;
 
 fn get_audio_duration(path: &PathBuf) -> Result<f64, Box<dyn std::error::Error>> {
     let reader = hound::WavReader::open(path)?;

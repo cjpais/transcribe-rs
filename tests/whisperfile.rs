@@ -1,7 +1,7 @@
 use once_cell::sync::Lazy;
 use std::path::PathBuf;
 use std::sync::Mutex;
-use transcribe_rs::whisperfile::{WhisperfileEngine, WhisperfileInferenceParams, WhisperfileModelParams};
+use transcribe_rs::whisperfile::{WhisperfileEngine, WhisperfileModelParams};
 use transcribe_rs::SpeechModel;
 
 fn binary_path() -> PathBuf {

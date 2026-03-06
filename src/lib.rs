@@ -9,7 +9,21 @@
 //! - **Whisperfile**: Mozilla Whisperfile server (requires `whisperfile` feature)
 //! - **Remote**: OpenAI API (requires `openai` feature)
 //! - **Timestamped Results**: Detailed timing information for transcribed segments
-//! - **Unified API**: `SpeechModel` trait for all engines
+//! - **Unified API**: `SpeechModel` trait for all local engines
+//!
+//! ## Backend Categories
+//!
+//! This crate provides two categories of transcription backend:
+//!
+//! - **Local models** implement [`SpeechModel`] and run inference in-process or via
+//!   a local binary. This includes all ONNX models, Whisper (via whisper.cpp), and
+//!   Whisperfile.
+//! - **Remote services** implement [`RemoteTranscriptionEngine`] (requires `openai`
+//!   feature) and make async network calls to external APIs. This includes OpenAI.
+//!
+//! These traits are intentionally separate because the execution model differs:
+//! local models are synchronous and take audio samples directly, while remote
+//! services are async and may only accept file uploads.
 //!
 //! ## Quick Start
 //!
@@ -43,10 +57,12 @@
 //! - Mono (single channel)
 
 pub mod audio;
+pub mod error;
+pub use error::TranscribeError;
 
-#[cfg(feature = "onnx")]
+#[cfg(feature = "audio-features")]
 pub mod features;
-#[cfg(feature = "onnx")]
+#[cfg(feature = "audio-features")]
 pub mod decode;
 #[cfg(feature = "onnx")]
 pub mod onnx;
@@ -92,29 +108,17 @@ pub trait SpeechModel {
         &mut self,
         samples: &[f32],
         language: Option<&str>,
-    ) -> Result<TranscriptionResult, Box<dyn std::error::Error>>;
+    ) -> Result<TranscriptionResult, TranscribeError>;
 
     /// Transcribe a WAV file (16 kHz, 16-bit, mono).
     fn transcribe_file(
         &mut self,
         wav_path: &Path,
         language: Option<&str>,
-    ) -> Result<TranscriptionResult, Box<dyn std::error::Error>> {
+    ) -> Result<TranscriptionResult, TranscribeError> {
         let samples = audio::read_wav_samples(wav_path)?;
         self.transcribe(&samples, language)
     }
-}
-
-/// Interface for streaming speech-to-text models (future use).
-pub trait StreamingSpeechModel: SpeechModel {
-    /// Begin a new streaming session.
-    fn begin(&mut self) -> Result<(), Box<dyn std::error::Error>>;
-
-    /// Push a chunk of audio samples into the stream.
-    fn push(&mut self, samples: &[f32]) -> Result<Option<TranscriptionResult>, Box<dyn std::error::Error>>;
-
-    /// End the streaming session and return the final result.
-    fn end(&mut self) -> Result<TranscriptionResult, Box<dyn std::error::Error>>;
 }
 
 /// The result of a transcription operation.

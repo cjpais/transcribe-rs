@@ -8,6 +8,7 @@ use std::path::Path;
 
 use crate::decode::{ctc_greedy_decode, CtcDecoderResult};
 use crate::features::{apply_cmvn, apply_lfr, compute_mel, MelConfig, WindowType};
+use crate::TranscribeError;
 use super::session;
 use super::Quantization;
 use crate::{ModelCapabilities, SpeechModel, TranscriptionResult, TranscriptionSegment};
@@ -102,16 +103,16 @@ pub struct SenseVoiceModel {
 }
 
 impl SenseVoiceModel {
-    pub fn load(model_dir: &Path, quantization: &Quantization) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn load(model_dir: &Path, quantization: &Quantization) -> Result<Self, TranscribeError> {
         let quantized = matches!(quantization, Quantization::Int8);
         let model_path = session::resolve_model_path(model_dir, "model", quantized);
         let tokens_path = model_dir.join("tokens.txt");
 
         if !model_path.exists() {
-            return Err(format!("Model file not found: {}", model_path.display()).into());
+            return Err(TranscribeError::ModelNotFound(model_path));
         }
         if !tokens_path.exists() {
-            return Err(format!("Tokens file not found: {}", tokens_path.display()).into());
+            return Err(TranscribeError::ModelNotFound(tokens_path));
         }
 
         log::info!("Loading SenseVoice model from {:?}...", model_path);
@@ -143,55 +144,25 @@ impl SenseVoiceModel {
         })
     }
 
-    fn read_meta_str(session: &Session, key: &str) -> Result<Option<String>, ort::Error> {
-        session::read_metadata_str(session, key)
-    }
-
-    fn read_meta_i32(
-        session: &Session,
-        key: &str,
-        default: Option<i32>,
-    ) -> Result<i32, Box<dyn std::error::Error>> {
-        match Self::read_meta_str(session, key)? {
-            Some(v) => Ok(v.parse::<i32>().map_err(|e| {
-                format!("Failed to parse '{}': {}", key, e)
-            })?),
-            None => default.ok_or_else(|| {
-                format!("Missing required metadata key: {}", key).into()
-            }),
-        }
-    }
-
-    fn read_meta_float_vec(session: &Session, key: &str) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
-        match Self::read_meta_str(session, key)? {
-            Some(v) => v
-                .split(',')
-                .map(|s| {
-                    s.trim().parse::<f32>().map_err(|e| {
-                        format!("Failed to parse float in '{}': {}", key, e).into()
-                    })
-                })
-                .collect(),
-            None => Ok(Vec::new()),
-        }
-    }
-
-    fn parse_metadata(session: &Session) -> Result<SenseVoiceMetadata, Box<dyn std::error::Error>> {
-        let comment = Self::read_meta_str(session, "comment")?.unwrap_or_default();
+    fn parse_metadata(session: &Session) -> Result<SenseVoiceMetadata, TranscribeError> {
+        let comment = session::read_metadata_str(session, "comment")
+            .map_err(|e| TranscribeError::Config(format!("failed to read metadata 'comment': {}", e)))?
+            .unwrap_or_default();
         let is_funasr_nano = comment.contains("Nano");
 
-        let vocab_size = Self::read_meta_i32(session, "vocab_size", None)?;
-        let blank_id = Self::read_meta_i32(session, "blank_id", Some(0))?;
-        let lfr_window_size = Self::read_meta_i32(session, "lfr_window_size", Some(7))? as usize;
-        let lfr_window_shift = Self::read_meta_i32(session, "lfr_window_shift", Some(6))? as usize;
-        let normalize_samples_int = Self::read_meta_i32(session, "normalize_samples", Some(0))?;
+        let vocab_size = session::read_metadata_i32(session, "vocab_size", None)?
+            .ok_or_else(|| TranscribeError::Config("Missing required metadata key: vocab_size".into()))?;
+        let blank_id = session::read_metadata_i32(session, "blank_id", Some(0))?.unwrap();
+        let lfr_window_size = session::read_metadata_i32(session, "lfr_window_size", Some(7))?.unwrap() as usize;
+        let lfr_window_shift = session::read_metadata_i32(session, "lfr_window_shift", Some(6))?.unwrap() as usize;
+        let normalize_samples_int = session::read_metadata_i32(session, "normalize_samples", Some(0))?.unwrap();
 
         let (with_itn_id, without_itn_id, lang2id, neg_mean_vec, inv_stddev_vec) =
             if is_funasr_nano {
                 (14, 15, HashMap::new(), Vec::new(), Vec::new())
             } else {
-                let with_itn_id = Self::read_meta_i32(session, "with_itn", Some(14))?;
-                let without_itn_id = Self::read_meta_i32(session, "without_itn", Some(15))?;
+                let with_itn_id = session::read_metadata_i32(session, "with_itn", Some(14))?.unwrap();
+                let without_itn_id = session::read_metadata_i32(session, "without_itn", Some(15))?.unwrap();
 
                 let mut lang2id = HashMap::new();
                 for (lang, key) in [
@@ -202,7 +173,7 @@ impl SenseVoiceModel {
                     ("ko", "lang_ko"),
                     ("yue", "lang_yue"),
                 ] {
-                    if let Ok(id) = Self::read_meta_i32(session, key, None) {
+                    if let Some(id) = session::read_metadata_i32(session, key, None)? {
                         lang2id.insert(lang.to_string(), id);
                     }
                 }
@@ -217,8 +188,8 @@ impl SenseVoiceModel {
                     ]);
                 }
 
-                let neg_mean_vec = Self::read_meta_float_vec(session, "neg_mean")?;
-                let inv_stddev_vec = Self::read_meta_float_vec(session, "inv_stddev")?;
+                let neg_mean_vec = session::read_metadata_float_vec(session, "neg_mean")?.unwrap_or_default();
+                let inv_stddev_vec = session::read_metadata_float_vec(session, "inv_stddev")?.unwrap_or_default();
 
                 (
                     with_itn_id,
@@ -249,7 +220,7 @@ impl SenseVoiceModel {
         &mut self,
         samples: &[f32],
         params: &SenseVoiceParams,
-    ) -> Result<TranscriptionResult, Box<dyn std::error::Error>> {
+    ) -> Result<TranscriptionResult, TranscribeError> {
         let language = params.language.as_deref().unwrap_or("auto");
         let use_itn = params.use_itn.unwrap_or(true);
         self.infer(samples, language, use_itn)
@@ -260,7 +231,7 @@ impl SenseVoiceModel {
         samples: &[f32],
         language: &str,
         use_itn: bool,
-    ) -> Result<TranscriptionResult, Box<dyn std::error::Error>> {
+    ) -> Result<TranscriptionResult, TranscribeError> {
         // Copy metadata values to avoid borrow conflicts with &mut self
         let normalize_samples = self.metadata.normalize_samples;
         let lfr_window_size = self.metadata.lfr_window_size;
@@ -340,14 +311,13 @@ impl SenseVoiceModel {
         features: &ndarray::ArrayView2<f32>,
         language: &str,
         use_itn: bool,
-    ) -> Result<ndarray::Array3<f32>, Box<dyn std::error::Error>> {
+    ) -> Result<ndarray::Array3<f32>, TranscribeError> {
         let meta = &self.metadata;
         let num_frames = features.nrows() as i32;
 
-        let feat_3d =
-            features
-                .to_owned()
-                .into_shape_with_order((1, features.nrows(), features.ncols()))?;
+        let feat_3d = features
+            .to_owned()
+            .into_shape_with_order((1, features.nrows(), features.ncols()))?;
 
         let x_length = ndarray::arr1(&[num_frames]);
 
@@ -357,7 +327,7 @@ impl SenseVoiceModel {
             *meta
                 .lang2id
                 .get(language)
-                .ok_or_else(|| format!("Unknown language: {}", language))?
+                .ok_or_else(|| TranscribeError::Config(format!("Unknown language: {}", language)))?
         };
         let language_arr = ndarray::arr1(&[lang_id]);
 
@@ -373,11 +343,16 @@ impl SenseVoiceModel {
         let language_dyn = language_arr.into_dyn();
         let text_norm_dyn = text_norm_arr.into_dyn();
 
+        let t_feat = TensorRef::from_array_view(feat_dyn.view())?;
+        let t_len = TensorRef::from_array_view(x_length_dyn.view())?;
+        let t_lang = TensorRef::from_array_view(language_dyn.view())?;
+        let t_norm = TensorRef::from_array_view(text_norm_dyn.view())?;
+
         let inputs = inputs![
-            self.input_names[0].as_str() => TensorRef::from_array_view(feat_dyn.view())?,
-            self.input_names[1].as_str() => TensorRef::from_array_view(x_length_dyn.view())?,
-            self.input_names[2].as_str() => TensorRef::from_array_view(language_dyn.view())?,
-            self.input_names[3].as_str() => TensorRef::from_array_view(text_norm_dyn.view())?,
+            self.input_names[0].as_str() => t_feat,
+            self.input_names[1].as_str() => t_len,
+            self.input_names[2].as_str() => t_lang,
+            self.input_names[3].as_str() => t_norm,
         ];
 
         let outputs = self.session.run(inputs)?;
@@ -390,16 +365,17 @@ impl SenseVoiceModel {
     fn forward_nano(
         &mut self,
         features: &ndarray::ArrayView2<f32>,
-    ) -> Result<ndarray::Array3<f32>, Box<dyn std::error::Error>> {
-        let feat_3d =
-            features
-                .to_owned()
-                .into_shape_with_order((1, features.nrows(), features.ncols()))?;
+    ) -> Result<ndarray::Array3<f32>, TranscribeError> {
+        let feat_3d = features
+            .to_owned()
+            .into_shape_with_order((1, features.nrows(), features.ncols()))?;
 
         let feat_dyn = feat_3d.into_dyn();
 
+        let t_feat = TensorRef::from_array_view(feat_dyn.view())?;
+
         let inputs = inputs![
-            self.input_names[0].as_str() => TensorRef::from_array_view(feat_dyn.view())?,
+            self.input_names[0].as_str() => t_feat,
         ];
 
         let outputs = self.session.run(inputs)?;
@@ -486,7 +462,7 @@ impl SpeechModel for SenseVoiceModel {
         &mut self,
         samples: &[f32],
         language: Option<&str>,
-    ) -> Result<TranscriptionResult, Box<dyn std::error::Error>> {
+    ) -> Result<TranscriptionResult, TranscribeError> {
         self.infer(samples, language.unwrap_or("auto"), true)
     }
 }
