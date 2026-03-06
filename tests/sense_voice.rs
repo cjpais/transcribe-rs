@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 
-use transcribe_rs::onnx::{Engine, InferenceParams, Model};
-use transcribe_rs::TranscriptionEngine;
+use transcribe_rs::onnx::sense_voice::SenseVoiceModel;
+use transcribe_rs::onnx::Quantization;
+use transcribe_rs::SpeechModel;
 
 #[test]
 fn test_sense_voice_transcribe() -> Result<(), Box<dyn std::error::Error>> {
@@ -19,16 +20,12 @@ fn test_sense_voice_transcribe() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    let mut engine = Engine::new();
-    engine.load(&model_path, Model::sense_voice())?;
+    let mut model = SenseVoiceModel::load(&model_path, &Quantization::FP32)?;
 
-    let params = InferenceParams::default();
-    let result = engine.transcribe_file(&wav_path, Some(params))?;
+    let result = model.transcribe_file(&wav_path, None)?;
 
     assert!(!result.text.is_empty(), "Transcription should not be empty");
     println!("Transcription: {}", result.text);
-
-    engine.unload_model();
 
     Ok(())
 }

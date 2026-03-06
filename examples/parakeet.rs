@@ -1,8 +1,9 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use transcribe_rs::onnx::{Engine, InferenceParams, Model, TimestampGranularity};
-use transcribe_rs::TranscriptionEngine;
+use transcribe_rs::onnx::parakeet::{ParakeetModel, ParakeetParams, TimestampGranularity};
+use transcribe_rs::onnx::Quantization;
+use transcribe_rs::SpeechModel;
 
 fn get_audio_duration(path: &PathBuf) -> Result<f64, Box<dyn std::error::Error>> {
     let reader = hound::WavReader::open(path)?;
@@ -14,7 +15,6 @@ fn get_audio_duration(path: &PathBuf) -> Result<f64, Box<dyn std::error::Error>>
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
-    let mut engine = Engine::new();
     let model_path = PathBuf::from("models/parakeet-tdt-0.6b-v3-int8");
     let wav_path = PathBuf::from("samples/dots.wav");
 
@@ -25,19 +25,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Loading model: {:?}", model_path);
 
     let load_start = Instant::now();
-    engine.load(&model_path, Model::parakeet_int8())?;
+    let mut model = ParakeetModel::load(&model_path, &Quantization::Int8)?;
     let load_duration = load_start.elapsed();
     println!("Model loaded in {:.2?}", load_duration);
 
     println!("Transcribing file: {:?}", wav_path);
     let transcribe_start = Instant::now();
 
-    let params = InferenceParams {
-        timestamp_granularity: Some(TimestampGranularity::Segment),
-        ..Default::default()
-    };
-
-    let result = engine.transcribe_file(&wav_path, Some(params))?;
+    let samples = transcribe_rs::audio::read_wav_samples(&wav_path)?;
+    let result = model.transcribe_with(
+        &samples,
+        &ParakeetParams {
+            timestamp_granularity: Some(TimestampGranularity::Segment),
+            ..Default::default()
+        },
+    )?;
     let transcribe_duration = transcribe_start.elapsed();
     println!("Transcription completed in {:.2?}", transcribe_duration);
 
@@ -59,8 +61,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
         }
     }
-
-    engine.unload_model();
 
     Ok(())
 }

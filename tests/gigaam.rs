@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
-use transcribe_rs::onnx::{Engine, Model};
-use transcribe_rs::TranscriptionEngine;
+use transcribe_rs::onnx::gigaam::GigaAMModel;
+use transcribe_rs::SpeechModel;
 
 #[test]
 fn test_gigaam_transcribe() -> Result<(), Box<dyn std::error::Error>> {
@@ -19,10 +19,9 @@ fn test_gigaam_transcribe() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    let mut engine = Engine::new();
-    engine.load(&model_path, Model::gigaam())?;
+    let mut model = GigaAMModel::load(&model_path)?;
 
-    let result = engine.transcribe_file(&wav_path, None)?;
+    let result = model.transcribe_file(&wav_path, None)?;
 
     let expected = "Проверка связи.";
     assert_eq!(
@@ -30,8 +29,6 @@ fn test_gigaam_transcribe() -> Result<(), Box<dyn std::error::Error>> {
         "\nExpected: '{}'\nActual: '{}'",
         expected, result.text
     );
-
-    engine.unload_model();
 
     Ok(())
 }

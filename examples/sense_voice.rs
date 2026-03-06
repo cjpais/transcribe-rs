@@ -1,8 +1,9 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use transcribe_rs::onnx::{Engine, InferenceParams, Language, Model};
-use transcribe_rs::TranscriptionEngine;
+use transcribe_rs::onnx::sense_voice::{SenseVoiceModel, SenseVoiceParams};
+use transcribe_rs::onnx::Quantization;
+use transcribe_rs::SpeechModel;
 
 fn get_audio_duration(path: &PathBuf) -> Result<f64, Box<dyn std::error::Error>> {
     let reader = hound::WavReader::open(path)?;
@@ -35,10 +36,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .unwrap_or("samples/dots.wav"),
     );
 
-    let model = if int8 {
-        Model::sense_voice_int8()
+    let quantization = if int8 {
+        Quantization::Int8
     } else {
-        Model::sense_voice()
+        Quantization::FP32
     };
 
     let audio_duration = get_audio_duration(&wav_path)?;
@@ -51,21 +52,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if int8 { "int8" } else { "fp32" }
     );
 
-    let mut engine = Engine::new();
     let load_start = Instant::now();
-    engine.load(&model_path, model)?;
+    let mut model = SenseVoiceModel::load(&model_path, &quantization)?;
     let load_duration = load_start.elapsed();
     println!("Model loaded in {:.2?}", load_duration);
 
     println!("Transcribing file: {:?}", wav_path);
     let transcribe_start = Instant::now();
 
-    let result = engine.transcribe_file(
-        &wav_path,
-        Some(InferenceParams {
-            language: Some(Language::English),
+    let samples = transcribe_rs::audio::read_wav_samples(&wav_path)?;
+    let result = model.transcribe_with(
+        &samples,
+        &SenseVoiceParams {
+            language: Some("en".to_string()),
             ..Default::default()
-        }),
+        },
     )?;
     let transcribe_duration = transcribe_start.elapsed();
     println!("Transcription completed in {:.2?}", transcribe_duration);
@@ -88,8 +89,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
         }
     }
-
-    engine.unload_model();
 
     Ok(())
 }

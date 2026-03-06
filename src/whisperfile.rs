@@ -2,30 +2,17 @@
 //!
 //! This module provides a transcription engine that uses Mozilla's whisperfile
 //! for speech-to-text conversion. The engine manages the whisperfile server
-//! lifecycle automatically - spawning it on model load and stopping it on unload.
-//!
-//! # Requirements
-//!
-//! - The whisperfile binary must be available on the system
-//! - Whisper model in GGML/GGUF format
-//!
-//! # Examples
-//!
-//! ```rust,no_run
-//! use transcribe_rs::{TranscriptionEngine, engines::whisperfile::WhisperfileEngine};
-//! use std::path::PathBuf;
-//!
-//! let mut engine = WhisperfileEngine::new(PathBuf::from("/path/to/whisperfile"));
-//! engine.load_model(&PathBuf::from("models/ggml-small.bin"))?;
-//!
-//! let result = engine.transcribe_file(&PathBuf::from("audio.wav"), None)?;
-//! println!("Transcription: {}", result.text);
-//!
-//! // Server is automatically stopped when engine is dropped
-//! # Ok::<(), Box<dyn std::error::Error>>(())
-//! ```
+//! lifecycle automatically.
 
-use crate::{TranscriptionEngine, TranscriptionResult, TranscriptionSegment};
+use crate::{ModelCapabilities, SpeechModel, TranscriptionResult, TranscriptionSegment};
+
+const CAPABILITIES: ModelCapabilities = ModelCapabilities {
+    name: "Whisperfile",
+    languages: &["en", "zh", "de", "es", "ru", "ko", "fr", "ja", "pt", "tr", "pl", "ca", "nl", "ar", "sv", "it", "id", "hi", "fi", "vi", "he", "uk", "el", "ms", "cs", "ro", "da", "hu", "ta", "no", "th", "ur", "hr", "bg", "lt", "la", "mi", "ml", "cy", "sk", "te", "fa", "lv", "bn", "sr", "az", "sl", "kn", "et", "mk", "br", "eu", "is", "hy", "ne", "mn", "bs", "kk", "sq", "sw", "gl", "mr", "pa", "si", "km", "sn", "yo", "so", "af", "oc", "ka", "be", "tg", "sd", "gu", "am", "yi", "lo", "uz", "fo", "ht", "ps", "tk", "nn", "mt", "sa", "lb", "my", "bo", "tl", "mg", "as", "tt", "haw", "ln", "ha", "ba", "jw", "su", "yue"],
+    supports_timestamps: true,
+    supports_translation: true,
+    supports_streaming: false,
+};
 use log::{debug, error, info, trace, warn};
 use serde::Deserialize;
 use std::io::{BufRead, BufReader, Write};
@@ -43,9 +30,7 @@ struct MultipartForm {
 }
 
 impl MultipartForm {
-    /// Create a new multipart form with a random boundary.
     fn new() -> Self {
-        // Generate a simple boundary using timestamp and a fixed prefix
         let boundary = format!(
             "----transcribe-rs-boundary-{}",
             std::time::SystemTime::now()
@@ -59,56 +44,41 @@ impl MultipartForm {
         }
     }
 
-    /// Add a file part to the form.
     fn file(mut self, name: &str, filename: &str, content_type: &str, data: Vec<u8>) -> Self {
-        // Write boundary
         write!(self.body, "--{}\r\n", self.boundary).unwrap();
-        // Write content disposition header
         write!(
             self.body,
             "Content-Disposition: form-data; name=\"{}\"; filename=\"{}\"\r\n",
             name, filename
         )
         .unwrap();
-        // Write content type header
         write!(self.body, "Content-Type: {}\r\n", content_type).unwrap();
-        // Blank line before content
         write!(self.body, "\r\n").unwrap();
-        // Write file data
         self.body.extend_from_slice(&data);
-        // Trailing CRLF
         write!(self.body, "\r\n").unwrap();
         self
     }
 
-    /// Add a text field to the form.
     fn text(mut self, name: &str, value: &str) -> Self {
-        // Write boundary
         write!(self.body, "--{}\r\n", self.boundary).unwrap();
-        // Write content disposition header
         write!(
             self.body,
             "Content-Disposition: form-data; name=\"{}\"\r\n",
             name
         )
         .unwrap();
-        // Blank line before content
         write!(self.body, "\r\n").unwrap();
-        // Write text value
         write!(self.body, "{}\r\n", value).unwrap();
         self
     }
 
-    /// Finalize the form and return the content type and body.
     fn build(mut self) -> (String, Vec<u8>) {
-        // Write closing boundary
         write!(self.body, "--{}--\r\n", self.boundary).unwrap();
         let content_type = format!("multipart/form-data; boundary={}", self.boundary);
         (content_type, self.body)
     }
 }
 
-/// JSON output structure from whisperfile server (verbose_json format)
 #[derive(Deserialize)]
 struct WhisperfileOutput {
     text: String,
@@ -151,21 +121,15 @@ impl From<WhisperfileOutput> for TranscriptionResult {
 /// GPU acceleration mode for Whisperfile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum GPUMode {
-    /// Auto-detect the best available GPU (default)
     #[default]
     Auto,
-    /// Use Apple Metal (macOS)
     Apple,
-    /// Use AMD GPU
     Amd,
-    /// Use NVIDIA GPU
     Nvidia,
-    /// Disable GPU acceleration
     Disabled,
 }
 
 impl GPUMode {
-    /// Get the command-line argument value for this GPU mode.
     pub fn as_arg(&self) -> &'static str {
         match self {
             GPUMode::Auto => "auto",
@@ -186,13 +150,9 @@ impl std::fmt::Display for GPUMode {
 /// Parameters for configuring Whisperfile model loading.
 #[derive(Debug, Clone)]
 pub struct WhisperfileModelParams {
-    /// Port for the whisperfile server (default: 8080)
     pub port: u16,
-    /// Host to bind the server to (default: "127.0.0.1")
     pub host: String,
-    /// Timeout in seconds to wait for server to start (default: 30)
     pub startup_timeout_secs: u64,
-    /// GPU acceleration mode (default: Auto)
     pub gpu: GPUMode,
 }
 
@@ -210,17 +170,9 @@ impl Default for WhisperfileModelParams {
 /// Parameters for configuring Whisperfile inference behavior.
 #[derive(Debug, Clone)]
 pub struct WhisperfileInferenceParams {
-    /// Target language for transcription (e.g., "en", "es", "fr").
-    /// If None, whisperfile will auto-detect the language.
     pub language: Option<String>,
-
-    /// Whether to translate the transcription to English.
     pub translate: bool,
-
-    /// Temperature for sampling (0.0 = greedy).
     pub temperature: Option<f32>,
-
-    /// Response format hint.
     pub response_format: Option<String>,
 }
 
@@ -237,44 +189,17 @@ impl Default for WhisperfileInferenceParams {
 
 /// Whisperfile speech recognition engine.
 ///
-/// This engine manages the whisperfile server lifecycle automatically.
-/// When you call `load_model()`, it spawns the whisperfile server process.
-/// When the engine is dropped or `unload_model()` is called, the server is stopped.
-///
-/// # Examples
-///
-/// ```rust,no_run
-/// use transcribe_rs::engines::whisperfile::WhisperfileEngine;
-/// use std::path::PathBuf;
-///
-/// let mut engine = WhisperfileEngine::new(PathBuf::from("/path/to/whisperfile"));
-/// ```
+/// Manages the whisperfile server lifecycle automatically.
 pub struct WhisperfileEngine {
     binary_path: PathBuf,
     server_url: String,
     agent: Agent,
     server_process: Option<Child>,
-    /// Flag to signal the log reader thread to stop
     log_shutdown: Arc<AtomicBool>,
-    /// Handle to the log reader thread
     log_thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl WhisperfileEngine {
-    /// Create a new Whisperfile engine instance.
-    ///
-    /// # Arguments
-    ///
-    /// * `binary_path` - Path to the whisperfile executable
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use transcribe_rs::engines::whisperfile::WhisperfileEngine;
-    /// use std::path::PathBuf;
-    ///
-    /// let engine = WhisperfileEngine::new(PathBuf::from("/usr/local/bin/whisperfile"));
-    /// ```
     pub fn new(binary_path: impl Into<PathBuf>) -> Self {
         Self {
             binary_path: binary_path.into(),
@@ -286,7 +211,143 @@ impl WhisperfileEngine {
         }
     }
 
-    /// Wait for the server to become ready
+    /// Load a model with default parameters.
+    pub fn load_model(&mut self, model_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+        self.load_model_with_params(model_path, WhisperfileModelParams::default())
+    }
+
+    /// Load a model with custom server parameters.
+    pub fn load_model_with_params(
+        &mut self,
+        model_path: &Path,
+        params: WhisperfileModelParams,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.unload_model();
+
+        if !self.binary_path.exists() {
+            warn!(
+                "Whisperfile binary not found: {}",
+                self.binary_path.display()
+            );
+            return Err(format!(
+                "Whisperfile binary not found: {}",
+                self.binary_path.display()
+            )
+            .into());
+        }
+
+        if !model_path.exists() {
+            warn!("Model file not found: {}", model_path.display());
+            return Err(format!("Model file not found: {}", model_path.display()).into());
+        }
+
+        self.server_url = format!("http://{}:{}", params.host, params.port);
+
+        info!(
+            "Starting whisperfile server: binary={}, model={}, host={}, port={}, gpu={}",
+            self.binary_path.display(),
+            model_path.display(),
+            params.host,
+            params.port,
+            params.gpu
+        );
+
+        let mut child = Command::new(&self.binary_path)
+            .arg("--server")
+            .arg("-m")
+            .arg(model_path)
+            .arg("--host")
+            .arg(&params.host)
+            .arg("--port")
+            .arg(params.port.to_string())
+            .arg("--gpu")
+            .arg(params.gpu.as_arg())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| {
+                error!("Failed to spawn whisperfile server: {}", e);
+                format!("Failed to spawn whisperfile server: {}", e)
+            })?;
+
+        debug!("Whisperfile server process spawned (pid: {:?})", child.id());
+
+        self.log_shutdown.store(false, Ordering::SeqCst);
+
+        if let Some(stderr) = child.stderr.take() {
+            let shutdown_flag = Arc::clone(&self.log_shutdown);
+            let log_thread = std::thread::spawn(move || {
+                let reader = BufReader::new(stderr);
+                for line in reader.lines() {
+                    if shutdown_flag.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    match line {
+                        Ok(line) => {
+                            debug!("[whisperfile] {}", line);
+                        }
+                        Err(e) => {
+                            trace!("Error reading whisperfile stderr: {}", e);
+                            break;
+                        }
+                    }
+                }
+                trace!("Whisperfile log reader thread exiting");
+            });
+            self.log_thread = Some(log_thread);
+        }
+
+        self.server_process = Some(child);
+
+        self.wait_for_server(Duration::from_secs(params.startup_timeout_secs))?;
+
+        Ok(())
+    }
+
+    /// Unload the current model and stop the server.
+    pub fn unload_model(&mut self) {
+        self.log_shutdown.store(true, Ordering::SeqCst);
+
+        if let Some(mut child) = self.server_process.take() {
+            debug!("Stopping whisperfile server (pid: {:?})", child.id());
+            let _ = child.kill();
+            let _ = child.wait();
+            info!("Whisperfile server stopped");
+        }
+
+        if let Some(thread) = self.log_thread.take() {
+            trace!("Waiting for log reader thread to finish");
+            let _ = thread.join();
+        }
+
+        self.server_url.clear();
+    }
+
+    /// Transcribe with model-specific parameters.
+    pub fn transcribe_with(
+        &mut self,
+        samples: &[f32],
+        params: &WhisperfileInferenceParams,
+    ) -> Result<TranscriptionResult, Box<dyn std::error::Error>> {
+        self.transcribe_samples_inner(samples.to_vec(), Some(params.clone()))
+    }
+
+    /// Transcribe a WAV file with model-specific parameters.
+    pub fn transcribe_file_with(
+        &mut self,
+        wav_path: &Path,
+        params: &WhisperfileInferenceParams,
+    ) -> Result<TranscriptionResult, Box<dyn std::error::Error>> {
+        if self.server_process.is_none() {
+            warn!("Attempted to transcribe file without loading model");
+            return Err("Model not loaded. Call load_model() first.".into());
+        }
+
+        debug!("Transcribing file: {}", wav_path.display());
+        let wav_data = std::fs::read(wav_path)?;
+        self.transcribe_wav_bytes(wav_data, Some(params.clone()))
+    }
+
     fn wait_for_server(&self, timeout: Duration) -> Result<(), Box<dyn std::error::Error>> {
         let start = Instant::now();
         let url = format!("{}/", self.server_url);
@@ -322,135 +383,11 @@ impl WhisperfileEngine {
         )
         .into())
     }
-}
 
-impl Drop for WhisperfileEngine {
-    fn drop(&mut self) {
-        self.unload_model();
-    }
-}
-
-impl TranscriptionEngine for WhisperfileEngine {
-    type InferenceParams = WhisperfileInferenceParams;
-    type ModelParams = WhisperfileModelParams;
-
-    fn load_model_with_params(
-        &mut self,
-        model_path: &Path,
-        params: Self::ModelParams,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        // Stop any existing server
-        self.unload_model();
-
-        // Verify binary exists
-        if !self.binary_path.exists() {
-            warn!(
-                "Whisperfile binary not found: {}",
-                self.binary_path.display()
-            );
-            return Err(format!(
-                "Whisperfile binary not found: {}",
-                self.binary_path.display()
-            )
-            .into());
-        }
-
-        // Verify model exists
-        if !model_path.exists() {
-            warn!("Model file not found: {}", model_path.display());
-            return Err(format!("Model file not found: {}", model_path.display()).into());
-        }
-
-        self.server_url = format!("http://{}:{}", params.host, params.port);
-
-        info!(
-            "Starting whisperfile server: binary={}, model={}, host={}, port={}, gpu={}",
-            self.binary_path.display(),
-            model_path.display(),
-            params.host,
-            params.port,
-            params.gpu
-        );
-
-        // Spawn the server process with stderr piped for logging
-        let mut child = Command::new(&self.binary_path)
-            .arg("--server")
-            .arg("-m")
-            .arg(model_path)
-            .arg("--host")
-            .arg(&params.host)
-            .arg("--port")
-            .arg(params.port.to_string())
-            .arg("--gpu")
-            .arg(params.gpu.as_arg())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| {
-                error!("Failed to spawn whisperfile server: {}", e);
-                format!("Failed to spawn whisperfile server: {}", e)
-            })?;
-
-        debug!("Whisperfile server process spawned (pid: {:?})", child.id());
-
-        // Reset shutdown flag and spawn a thread to read server logs
-        self.log_shutdown.store(false, Ordering::SeqCst);
-
-        if let Some(stderr) = child.stderr.take() {
-            let shutdown_flag = Arc::clone(&self.log_shutdown);
-            let log_thread = std::thread::spawn(move || {
-                let reader = BufReader::new(stderr);
-                for line in reader.lines() {
-                    if shutdown_flag.load(Ordering::SeqCst) {
-                        break;
-                    }
-                    match line {
-                        Ok(line) => {
-                            debug!("[whisperfile] {}", line);
-                        }
-                        Err(e) => {
-                            trace!("Error reading whisperfile stderr: {}", e);
-                            break;
-                        }
-                    }
-                }
-                trace!("Whisperfile log reader thread exiting");
-            });
-            self.log_thread = Some(log_thread);
-        }
-
-        self.server_process = Some(child);
-
-        // Wait for server to be ready
-        self.wait_for_server(Duration::from_secs(params.startup_timeout_secs))?;
-
-        Ok(())
-    }
-
-    fn unload_model(&mut self) {
-        // Signal the log reader thread to stop
-        self.log_shutdown.store(true, Ordering::SeqCst);
-
-        if let Some(mut child) = self.server_process.take() {
-            debug!("Stopping whisperfile server (pid: {:?})", child.id());
-            let _ = child.kill();
-            let _ = child.wait();
-            info!("Whisperfile server stopped");
-        }
-
-        // Wait for the log thread to finish
-        if let Some(thread) = self.log_thread.take() {
-            trace!("Waiting for log reader thread to finish");
-            let _ = thread.join();
-        }
-
-        self.server_url.clear();
-    }
-
-    fn transcribe_samples(
+    fn transcribe_samples_inner(
         &mut self,
         samples: Vec<f32>,
-        params: Option<Self::InferenceParams>,
+        params: Option<WhisperfileInferenceParams>,
     ) -> Result<TranscriptionResult, Box<dyn std::error::Error>> {
         if self.server_process.is_none() {
             warn!("Attempted to transcribe samples without loading model");
@@ -459,7 +396,6 @@ impl TranscriptionEngine for WhisperfileEngine {
 
         debug!("Transcribing {} samples", samples.len());
 
-        // Write samples to a WAV buffer in memory
         let mut wav_buffer = std::io::Cursor::new(Vec::new());
         let spec = hound::WavSpec {
             channels: 1,
@@ -479,24 +415,6 @@ impl TranscriptionEngine for WhisperfileEngine {
         self.transcribe_wav_bytes(wav_data, params)
     }
 
-    fn transcribe_file(
-        &mut self,
-        wav_path: &Path,
-        params: Option<Self::InferenceParams>,
-    ) -> Result<TranscriptionResult, Box<dyn std::error::Error>> {
-        if self.server_process.is_none() {
-            warn!("Attempted to transcribe file without loading model");
-            return Err("Model not loaded. Call load_model() first.".into());
-        }
-
-        debug!("Transcribing file: {}", wav_path.display());
-
-        let wav_data = std::fs::read(wav_path)?;
-        self.transcribe_wav_bytes(wav_data, params)
-    }
-}
-
-impl WhisperfileEngine {
     fn transcribe_wav_bytes(
         &self,
         wav_data: Vec<u8>,
@@ -512,10 +430,8 @@ impl WhisperfileEngine {
             params.temperature
         );
 
-        // Build multipart form using custom builder
         let mut form = MultipartForm::new().file("file", "audio.wav", "audio/wav", wav_data);
 
-        // Add optional parameters
         if let Some(lang) = &params.language {
             form = form.text("language", lang);
         }
@@ -566,5 +482,29 @@ impl WhisperfileEngine {
         trace!("Transcription result: {:?}", whisperfile_output.text);
 
         Ok(whisperfile_output.into())
+    }
+}
+
+impl Drop for WhisperfileEngine {
+    fn drop(&mut self) {
+        self.unload_model();
+    }
+}
+
+impl SpeechModel for WhisperfileEngine {
+    fn capabilities(&self) -> ModelCapabilities {
+        CAPABILITIES
+    }
+
+    fn transcribe(
+        &mut self,
+        samples: &[f32],
+        language: Option<&str>,
+    ) -> Result<TranscriptionResult, Box<dyn std::error::Error>> {
+        let params = WhisperfileInferenceParams {
+            language: language.map(|s| s.to_string()),
+            ..Default::default()
+        };
+        self.transcribe_samples_inner(samples.to_vec(), Some(params))
     }
 }

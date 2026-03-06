@@ -2175,7 +2175,6 @@ dependencies = [
  "rustfft",
  "serde",
  "serde_json",
- "thiserror 2.0.16",
  "tokio",
  "ureq",
  "whisper-rs",

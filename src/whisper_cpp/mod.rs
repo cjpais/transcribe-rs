@@ -1,8 +1,4 @@
-//! Whisper speech recognition engine implementation.
-//!
-//! This module provides a Whisper-based transcription engine that uses
-//! OpenAI's Whisper model for speech-to-text conversion. Whisper models
-//! are provided as single GGML format files.
+//! Whisper speech recognition via whisper-rs (whisper.cpp bindings).
 //!
 //! # Model Format
 //!
@@ -16,59 +12,32 @@
 //!
 //! # Examples
 //!
-//! ## Basic Usage
-//!
 //! ```rust,no_run
-//! use transcribe_rs::{TranscriptionEngine, engines::whisper::WhisperEngine};
+//! use transcribe_rs::whisper_cpp::{WhisperEngine, WhisperModelParams};
+//! use transcribe_rs::SpeechModel;
 //! use std::path::PathBuf;
 //!
 //! let mut engine = WhisperEngine::new();
 //! engine.load_model(&PathBuf::from("models/whisper-medium-q4_1.bin"))?;
 //!
-//! let result = engine.transcribe_file(&PathBuf::from("audio.wav"), None)?;
-//! println!("Transcription: {}", result.text);
-//!
-//! if let Some(segments) = result.segments {
-//!     for segment in segments {
-//!         println!("[{:.2}s - {:.2}s]: {}", segment.start, segment.end, segment.text);
-//!     }
-//! }
-//! # Ok::<(), Box<dyn std::error::Error>>(())
-//! ```
-//!
-//! ## With Custom Parameters and Initial Prompt
-//!
-//! ```rust,no_run
-//! use transcribe_rs::{TranscriptionEngine, engines::whisper::{WhisperEngine, WhisperInferenceParams}};
-//! use std::path::PathBuf;
-//!
-//! let mut engine = WhisperEngine::new();
-//! engine.load_model(&PathBuf::from("models/whisper-medium-q4_1.bin"))?;
-//!
-//! let params = WhisperInferenceParams {
-//!     language: Some("en".to_string()),
-//!     translate: false,  // Set to true to translate to English (requires multilingual model)
-//!     print_timestamps: true,
-//!     suppress_blank: true,
-//!     no_speech_thold: 0.6,
-//!     initial_prompt: Some("This is a conversation about technology and AI.".to_string()),
-//!     ..Default::default()
-//! };
-//!
-//! let result = engine.transcribe_file(&PathBuf::from("audio.wav"), Some(params))?;
+//! let result = engine.transcribe(&[], Some("en"))?;
 //! println!("Transcription: {}", result.text);
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
-use crate::{TranscriptionEngine, TranscriptionResult, TranscriptionSegment};
+use crate::{ModelCapabilities, SpeechModel, TranscriptionResult, TranscriptionSegment};
 use std::path::{Path, PathBuf};
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
+const CAPABILITIES: ModelCapabilities = ModelCapabilities {
+    name: "Whisper",
+    languages: &["en", "zh", "de", "es", "ru", "ko", "fr", "ja", "pt", "tr", "pl", "ca", "nl", "ar", "sv", "it", "id", "hi", "fi", "vi", "he", "uk", "el", "ms", "cs", "ro", "da", "hu", "ta", "no", "th", "ur", "hr", "bg", "lt", "la", "mi", "ml", "cy", "sk", "te", "fa", "lv", "bn", "sr", "az", "sl", "kn", "et", "mk", "br", "eu", "is", "hy", "ne", "mn", "bs", "kk", "sq", "sw", "gl", "mr", "pa", "si", "km", "sn", "yo", "so", "af", "oc", "ka", "be", "tg", "sd", "gu", "am", "yi", "lo", "uz", "fo", "ht", "ps", "tk", "nn", "mt", "sa", "lb", "my", "bo", "tl", "mg", "as", "tt", "haw", "ln", "ha", "ba", "jw", "su", "yue"],
+    supports_timestamps: true,
+    supports_translation: true,
+    supports_streaming: false,
+};
+
 /// Parameters for configuring Whisper model loading.
-///
-/// Currently, Whisper model loading doesn't require additional parameters
-/// beyond the model file path. This struct exists for API consistency
-/// and future extensibility.
 #[derive(Debug, Clone)]
 pub struct WhisperModelParams {
     pub use_gpu: bool,
@@ -81,9 +50,6 @@ impl Default for WhisperModelParams {
 }
 
 /// Parameters for configuring Whisper inference behavior.
-///
-/// These parameters control various aspects of the transcription process,
-/// including language detection, output formatting, and noise suppression.
 #[derive(Debug, Clone)]
 pub struct WhisperInferenceParams {
     /// Target language for transcription (e.g., "en", "es", "fr").
@@ -91,7 +57,6 @@ pub struct WhisperInferenceParams {
     pub language: Option<String>,
 
     /// Whether to translate the transcription to English.
-    /// Only works with multilingual models (not .en models).
     pub translate: bool,
 
     /// Whether to print special tokens in the output
@@ -109,16 +74,13 @@ pub struct WhisperInferenceParams {
     /// Whether to suppress blank/empty segments in the output
     pub suppress_blank: bool,
 
-    /// Whether to suppress non-speech tokens (e.g., \[BLANK_AUDIO\])
+    /// Whether to suppress non-speech tokens
     pub suppress_non_speech_tokens: bool,
 
     /// Threshold for detecting silence/no-speech segments (0.0-1.0).
     pub no_speech_thold: f32,
 
     /// Initial prompt to provide context to the model.
-    /// This can be used to improve transcription accuracy by providing
-    /// context, vocabulary hints, or style guidance to the model.
-    /// Limited to 224 tokens maximum.
     pub initial_prompt: Option<String>,
 }
 
@@ -140,24 +102,6 @@ impl Default for WhisperInferenceParams {
 }
 
 /// Whisper speech recognition engine.
-///
-/// This engine uses OpenAI's Whisper model for speech-to-text transcription.
-/// It supports various Whisper model sizes and quantization levels.
-///
-/// # Model Requirements
-///
-/// - **Format**: Single GGML format file (`.bin`)
-/// - **Models**: tiny, base, small, medium, large variants
-/// - **Quantization**: Supports quantized models (e.g., q4_1, q8_0)
-///
-/// # Examples
-///
-/// ```rust,no_run
-/// use transcribe_rs::engines::whisper::WhisperEngine;
-///
-/// let mut engine = WhisperEngine::new();
-/// // Engine is ready to load a model
-/// ```
 pub struct WhisperEngine {
     loaded_model_path: Option<PathBuf>,
     state: Option<whisper_rs::WhisperState>,
@@ -171,19 +115,7 @@ impl Default for WhisperEngine {
 }
 
 impl WhisperEngine {
-    /// Create a new Whisper engine instance.
-    ///
-    /// The engine starts unloaded - you must call `load_model()` before
-    /// performing transcription operations.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use transcribe_rs::engines::whisper::WhisperEngine;
-    ///
-    /// let engine = WhisperEngine::new();
-    /// // Engine is ready to load a model
-    /// ```
+    /// Create a new Whisper engine instance (unloaded).
     pub fn new() -> Self {
         Self {
             loaded_model_path: None,
@@ -191,22 +123,17 @@ impl WhisperEngine {
             context: None,
         }
     }
-}
 
-impl Drop for WhisperEngine {
-    fn drop(&mut self) {
-        self.unload_model();
+    /// Load a Whisper model with default parameters.
+    pub fn load_model(&mut self, model_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+        self.load_model_with_params(model_path, WhisperModelParams::default())
     }
-}
 
-impl TranscriptionEngine for WhisperEngine {
-    type InferenceParams = WhisperInferenceParams;
-    type ModelParams = WhisperModelParams;
-
-    fn load_model_with_params(
+    /// Load a Whisper model with custom parameters.
+    pub fn load_model_with_params(
         &mut self,
         model_path: &Path,
-        params: Self::ModelParams,
+        params: WhisperModelParams,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut context_params = WhisperContextParameters::default();
         context_params.use_gpu = params.use_gpu;
@@ -219,44 +146,51 @@ impl TranscriptionEngine for WhisperEngine {
 
         self.context = Some(context);
         self.state = Some(state);
-
         self.loaded_model_path = Some(model_path.to_path_buf());
         Ok(())
     }
 
-    fn unload_model(&mut self) {
+    /// Unload the current model.
+    pub fn unload_model(&mut self) {
         self.loaded_model_path = None;
         self.state = None;
         self.context = None;
     }
 
-    fn transcribe_samples(
+    /// Transcribe with model-specific parameters.
+    pub fn transcribe_with(
+        &mut self,
+        samples: &[f32],
+        params: &WhisperInferenceParams,
+    ) -> Result<TranscriptionResult, Box<dyn std::error::Error>> {
+        self.infer(samples.to_vec(), params)
+    }
+
+    fn infer(
         &mut self,
         samples: Vec<f32>,
-        params: Option<Self::InferenceParams>,
+        params: &WhisperInferenceParams,
     ) -> Result<TranscriptionResult, Box<dyn std::error::Error>> {
         let state = self
             .state
             .as_mut()
             .ok_or("Model not loaded. Call load_model() first.")?;
 
-        let whisper_params = params.unwrap_or_default();
-
         let mut full_params = FullParams::new(SamplingStrategy::BeamSearch {
             beam_size: 3,
             patience: -1.0,
         });
-        full_params.set_language(whisper_params.language.as_deref());
-        full_params.set_translate(whisper_params.translate);
-        full_params.set_print_special(whisper_params.print_special);
-        full_params.set_print_progress(whisper_params.print_progress);
-        full_params.set_print_realtime(whisper_params.print_realtime);
-        full_params.set_print_timestamps(whisper_params.print_timestamps);
-        full_params.set_suppress_blank(whisper_params.suppress_blank);
-        full_params.set_suppress_non_speech_tokens(whisper_params.suppress_non_speech_tokens);
-        full_params.set_no_speech_thold(whisper_params.no_speech_thold);
+        full_params.set_language(params.language.as_deref());
+        full_params.set_translate(params.translate);
+        full_params.set_print_special(params.print_special);
+        full_params.set_print_progress(params.print_progress);
+        full_params.set_print_realtime(params.print_realtime);
+        full_params.set_print_timestamps(params.print_timestamps);
+        full_params.set_suppress_blank(params.suppress_blank);
+        full_params.set_suppress_non_speech_tokens(params.suppress_non_speech_tokens);
+        full_params.set_no_speech_thold(params.no_speech_thold);
 
-        if let Some(ref prompt) = whisper_params.initial_prompt {
+        if let Some(ref prompt) = params.initial_prompt {
             full_params.set_initial_prompt(prompt);
         }
 
@@ -286,5 +220,29 @@ impl TranscriptionEngine for WhisperEngine {
             text: full_text.trim().to_string(),
             segments: Some(segments),
         })
+    }
+}
+
+impl Drop for WhisperEngine {
+    fn drop(&mut self) {
+        self.unload_model();
+    }
+}
+
+impl SpeechModel for WhisperEngine {
+    fn capabilities(&self) -> ModelCapabilities {
+        CAPABILITIES
+    }
+
+    fn transcribe(
+        &mut self,
+        samples: &[f32],
+        language: Option<&str>,
+    ) -> Result<TranscriptionResult, Box<dyn std::error::Error>> {
+        let params = WhisperInferenceParams {
+            language: language.map(|s| s.to_string()),
+            ..Default::default()
+        };
+        self.infer(samples.to_vec(), &params)
     }
 }

@@ -1,29 +1,25 @@
 use once_cell::sync::Lazy;
 use std::path::PathBuf;
 use std::sync::Mutex;
-use transcribe_rs::engines::whisperfile::{WhisperfileEngine, WhisperfileModelParams};
-use transcribe_rs::TranscriptionEngine;
+use transcribe_rs::whisperfile::{WhisperfileEngine, WhisperfileInferenceParams, WhisperfileModelParams};
+use transcribe_rs::SpeechModel;
 
-// Path to whisperfile binary - can be overridden with WHISPERFILE_BIN env var
 fn binary_path() -> PathBuf {
     std::env::var("WHISPERFILE_BIN")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("models/whisperfile-0.9.3"))
 }
 
-// Path to model - can be overridden with WHISPERFILE_MODEL env var
 fn model_path() -> PathBuf {
     std::env::var("WHISPERFILE_MODEL")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("models/ggml-small.bin"))
 }
 
-// Check if whisperfile binary exists
 fn binary_available() -> bool {
     binary_path().exists()
 }
 
-// Shared engine for all tests (server started once)
 static ENGINE: Lazy<Mutex<Option<WhisperfileEngine>>> = Lazy::new(|| {
     if !binary_available() {
         eprintln!(
@@ -41,7 +37,6 @@ static ENGINE: Lazy<Mutex<Option<WhisperfileEngine>>> = Lazy::new(|| {
 
     let mut engine = WhisperfileEngine::new(binary_path());
 
-    // Use a specific port to avoid conflicts
     let params = WhisperfileModelParams {
         port: 18080,
         startup_timeout_secs: 60,
@@ -58,7 +53,6 @@ static ENGINE: Lazy<Mutex<Option<WhisperfileEngine>>> = Lazy::new(|| {
 });
 
 fn get_engine() -> Option<std::sync::MutexGuard<'static, Option<WhisperfileEngine>>> {
-    // Use unwrap_or_else to recover from poisoned mutex (happens if a test panics)
     let guard = ENGINE.lock().unwrap_or_else(|e| e.into_inner());
     if guard.is_none() {
         return None;
@@ -100,8 +94,6 @@ fn test_jfk_transcription() {
         .transcribe_file(&audio_path, None)
         .expect("Failed to transcribe");
 
-    // Whisperfile may produce slightly different output than whisper-rs
-    // Normalize whitespace and check for key phrases
     let text_normalized: String = result
         .text
         .to_lowercase()
@@ -151,7 +143,6 @@ fn test_timestamps() {
         .transcribe_file(&audio_path, None)
         .expect("Failed to transcribe");
 
-    // Verify segments are returned
     assert!(
         result.segments.is_some(),
         "Transcription should return segments"
@@ -160,9 +151,7 @@ fn test_timestamps() {
     let segments = result.segments.unwrap();
     assert!(!segments.is_empty(), "Segments should not be empty");
 
-    // Verify timestamp properties
     for (i, segment) in segments.iter().enumerate() {
-        // Start time should be non-negative
         assert!(
             segment.start >= 0.0,
             "Segment {} start time should be non-negative, got {}",
@@ -170,7 +159,6 @@ fn test_timestamps() {
             segment.start
         );
 
-        // End time should be greater than or equal to start time
         assert!(
             segment.end >= segment.start,
             "Segment {} end time ({}) should be >= start time ({})",
@@ -179,7 +167,6 @@ fn test_timestamps() {
             segment.start
         );
 
-        // Segment should have text
         assert!(
             !segment.text.trim().is_empty(),
             "Segment {} should have non-empty text",
@@ -187,7 +174,6 @@ fn test_timestamps() {
         );
     }
 
-    // Verify segments are in chronological order
     for i in 1..segments.len() {
         assert!(
             segments[i].start >= segments[i - 1].start,
@@ -195,7 +181,6 @@ fn test_timestamps() {
         );
     }
 
-    // Verify the audio duration is reasonable (JFK clip is ~11 seconds)
     let last_segment = segments.last().unwrap();
     assert!(
         last_segment.end > 10.0 && last_segment.end < 15.0,
@@ -223,16 +208,14 @@ fn test_transcribe_samples() {
         }
     };
 
-    // Read samples using the audio module
     let audio_path = PathBuf::from("samples/jfk.wav");
     let samples =
         transcribe_rs::audio::read_wav_samples(&audio_path).expect("Failed to read audio samples");
 
     let result = engine
-        .transcribe_samples(samples, None)
+        .transcribe(&samples, None)
         .expect("Failed to transcribe samples");
 
-    // Verify we got a transcription
     assert!(!result.text.is_empty(), "Transcription should not be empty");
 
     let text_lower = result.text.to_lowercase();
@@ -264,17 +247,10 @@ fn test_language_parameter() {
 
     let audio_path = PathBuf::from("samples/jfk.wav");
 
-    // Transcribe with explicit English language
-    let params = transcribe_rs::engines::whisperfile::WhisperfileInferenceParams {
-        language: Some("en".to_string()),
-        ..Default::default()
-    };
-
     let result = engine
-        .transcribe_file(&audio_path, Some(params))
+        .transcribe_file(&audio_path, Some("en"))
         .expect("Failed to transcribe with language parameter");
 
-    // Should still get valid transcription
     assert!(!result.text.is_empty(), "Transcription should not be empty");
 
     let text_lower = result.text.to_lowercase();

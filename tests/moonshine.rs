@@ -1,19 +1,17 @@
 use std::path::PathBuf;
-use transcribe_rs::onnx::{Engine, Model};
-use transcribe_rs::TranscriptionEngine;
+
+use transcribe_rs::onnx::moonshine::{MoonshineModel, MoonshineVariant};
+use transcribe_rs::SpeechModel;
 
 #[test]
 fn test_moonshine_base_jfk() {
-    let mut engine = Engine::new();
-
     let model_path = PathBuf::from("models/moonshine-base");
-    engine
-        .load(&model_path, Model::moonshine_base())
+    let mut model = MoonshineModel::load(&model_path, MoonshineVariant::Base)
         .expect("Failed to load model");
 
     let audio_path = PathBuf::from("samples/jfk.wav");
 
-    let result = engine
+    let result = model
         .transcribe_file(&audio_path, None)
         .expect("Failed to transcribe");
 

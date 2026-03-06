@@ -1,19 +1,18 @@
 use std::path::PathBuf;
-use transcribe_rs::onnx::{Engine, Model};
-use transcribe_rs::TranscriptionEngine;
+
+use transcribe_rs::onnx::parakeet::ParakeetModel;
+use transcribe_rs::onnx::Quantization;
+use transcribe_rs::SpeechModel;
 
 #[test]
 fn test_jfk_transcription() {
-    let mut engine = Engine::new();
-
     let model_path = PathBuf::from("models/parakeet-tdt-0.6b-v3-int8");
-    engine
-        .load(&model_path, Model::parakeet_int8())
+    let mut model = ParakeetModel::load(&model_path, &Quantization::Int8)
         .expect("Failed to load model");
 
     let audio_path = PathBuf::from("samples/jfk.wav");
 
-    let result = engine
+    let result = model
         .transcribe_file(&audio_path, None)
         .expect("Failed to transcribe");
 
@@ -29,16 +28,13 @@ fn test_jfk_transcription() {
 
 #[test]
 fn test_timestamps() {
-    let mut engine = Engine::new();
-
     let model_path = PathBuf::from("models/parakeet-tdt-0.6b-v3-int8");
-    engine
-        .load(&model_path, Model::parakeet_int8())
+    let mut model = ParakeetModel::load(&model_path, &Quantization::Int8)
         .expect("Failed to load model");
 
     let audio_path = PathBuf::from("samples/jfk.wav");
 
-    let result = engine
+    let result = model
         .transcribe_file(&audio_path, None)
         .expect("Failed to transcribe");
 
