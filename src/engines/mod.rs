@@ -13,6 +13,7 @@
 //! - `sense_voice` - FunASR SenseVoice (ONNX format)
 //! - `gigaam` - SberDevices GigaAM v3 (ONNX format)
 //! - `whisperfile` - Mozilla whisperfile server wrapper
+//! - `qwen3` - Alibaba Qwen3-ASR (ONNX format)
 //!
 //! # Example
 //!
@@ -27,6 +28,8 @@ pub mod gigaam;
 pub mod moonshine;
 #[cfg(feature = "parakeet")]
 pub mod parakeet;
+#[cfg(feature = "qwen3")]
+pub mod qwen3;
 #[cfg(feature = "sense_voice")]
 pub mod sense_voice;
 #[cfg(feature = "whisper")]
