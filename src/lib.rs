@@ -55,6 +55,33 @@
 //! - 16 kHz sample rate
 //! - 16-bit samples
 //! - Mono (single channel)
+//!
+//! ## Migrating from 0.2.x to 0.3.0
+//!
+//! Version 0.3.0 is a breaking release. If you need the old API, pin to `version = "=0.2.9"`.
+//!
+//! **`SpeechModel::transcribe` signature changed:**
+//!
+//! ```rust,ignore
+//! // Before (0.2.x):
+//! model.transcribe(&samples, Some("en"))?;
+//! model.transcribe_file(&path, None)?;
+//!
+//! // After (0.3.0):
+//! use transcribe_rs::TranscribeOptions;
+//! model.transcribe(&samples, &TranscribeOptions { language: Some("en".into()), ..Default::default() })?;
+//! model.transcribe_file(&path, &TranscribeOptions::default())?;
+//! ```
+//!
+//! **`SpeechModel` now requires `Send`**, enabling `Box<dyn SpeechModel + Send>` for
+//! use across threads.
+//!
+//! **`TranscribeOptions` includes a `translate` field** (default `false`). Engines that
+//! support translation (Whisper, Whisperfile) will translate to English when set to `true`.
+//!
+//! **Whisper capabilities are now dynamic.** `WhisperEngine::capabilities()` returns the
+//! actual language support of the loaded model (English-only vs multilingual) rather than
+//! always reporting all 99 languages.
 
 pub mod audio;
 pub mod error;

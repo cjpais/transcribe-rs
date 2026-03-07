@@ -2,6 +2,17 @@
 
 Multi-engine speech-to-text library for Rust. Supports Parakeet, Moonshine, SenseVoice, GigaAM, Whisper, Whisperfile, and OpenAI.
 
+## Breaking Changes in 0.3.0
+
+Version 0.3.0 changes the `SpeechModel` trait. If you need the old API, pin to `version = "=0.2.9"`.
+
+- `transcribe()` and `transcribe_file()` now take `&TranscribeOptions` instead of `Option<&str>` for language
+- `SpeechModel` requires `Send`, enabling `Box<dyn SpeechModel + Send>` across threads
+- `TranscribeOptions` includes a `translate` field for Whisper/Whisperfile translation support
+- `WhisperEngine::capabilities()` now returns actual model language support (English-only vs multilingual) instead of always reporting 99 languages
+
+**Note:** 0.3.0 is a large migration. We believe correctness is preserved for all engines, but expect potential issues as this stabilizes. Please report any problems on [GitHub](https://github.com/cjpais/transcribe-rs/issues).
+
 ## Installation
 
 ```toml
@@ -81,7 +92,7 @@ let mut model = MoonshineModel::load(
     MoonshineVariant::Base,
     &Quantization::default(),
 )?;
-let result = model.transcribe_file(&PathBuf::from("audio.wav"), None)?;
+let result = model.transcribe_file(&PathBuf::from("audio.wav"), &transcribe_rs::TranscribeOptions::default())?;
 ```
 
 Streaming variant:
@@ -97,7 +108,7 @@ let mut model = StreamingModel::load(
     4,  // threads
     &Quantization::default(),
 )?;
-let result = model.transcribe_file(&PathBuf::from("audio.wav"), None)?;
+let result = model.transcribe_file(&PathBuf::from("audio.wav"), &transcribe_rs::TranscribeOptions::default())?;
 ```
 
 ### GigaAM
@@ -112,7 +123,7 @@ let mut model = GigaAMModel::load(
     &PathBuf::from("models/giga-am-v3"),
     &Quantization::default(),
 )?;
-let result = model.transcribe_file(&PathBuf::from("audio.wav"), None)?;
+let result = model.transcribe_file(&PathBuf::from("audio.wav"), &transcribe_rs::TranscribeOptions::default())?;
 ```
 
 ### Whisper (whisper.cpp)
