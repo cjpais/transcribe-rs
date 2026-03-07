@@ -1,3 +1,5 @@
+mod common;
+
 use std::path::PathBuf;
 
 use transcribe_rs::onnx::parakeet::ParakeetModel;
@@ -7,10 +9,14 @@ use transcribe_rs::SpeechModel;
 #[test]
 fn test_jfk_transcription() {
     let model_path = PathBuf::from("models/parakeet-tdt-0.6b-v3-int8");
-    let mut model = ParakeetModel::load(&model_path, &Quantization::Int8)
-        .expect("Failed to load model");
-
     let audio_path = PathBuf::from("samples/jfk.wav");
+
+    if !common::require_paths(&[&model_path, &audio_path]) {
+        return;
+    }
+
+    let mut model =
+        ParakeetModel::load(&model_path, &Quantization::Int8).expect("Failed to load model");
 
     let result = model
         .transcribe_file(&audio_path, None)
@@ -29,10 +35,14 @@ fn test_jfk_transcription() {
 #[test]
 fn test_timestamps() {
     let model_path = PathBuf::from("models/parakeet-tdt-0.6b-v3-int8");
-    let mut model = ParakeetModel::load(&model_path, &Quantization::Int8)
-        .expect("Failed to load model");
-
     let audio_path = PathBuf::from("samples/jfk.wav");
+
+    if !common::require_paths(&[&model_path, &audio_path]) {
+        return;
+    }
+
+    let mut model =
+        ParakeetModel::load(&model_path, &Quantization::Int8).expect("Failed to load model");
 
     let result = model
         .transcribe_file(&audio_path, None)

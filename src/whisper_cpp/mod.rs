@@ -10,15 +10,16 @@
 //! - `whisper-large.bin`
 //! - Quantized variants like `whisper-medium-q4_1.bin`
 //!
+//! Quantization is baked into the model file — pick the right file.
+//!
 //! # Examples
 //!
 //! ```rust,no_run
-//! use transcribe_rs::whisper_cpp::{WhisperEngine, WhisperModelParams};
+//! use transcribe_rs::whisper_cpp::WhisperEngine;
 //! use transcribe_rs::SpeechModel;
 //! use std::path::PathBuf;
 //!
-//! let mut engine = WhisperEngine::new();
-//! engine.load_model(&PathBuf::from("models/whisper-medium-q4_1.bin"))?;
+//! let mut engine = WhisperEngine::load(&PathBuf::from("models/whisper-medium-q4_1.bin"))?;
 //!
 //! let result = engine.transcribe(&[], Some("en"))?;
 //! println!("Transcription: {}", result.text);
@@ -26,11 +27,13 @@
 //! ```
 
 use crate::{ModelCapabilities, SpeechModel, TranscribeError, TranscriptionResult, TranscriptionSegment};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
 const CAPABILITIES: ModelCapabilities = ModelCapabilities {
     name: "Whisper",
+    engine_id: "whisper_cpp",
+    sample_rate: 16000,
     languages: &["en", "zh", "de", "es", "ru", "ko", "fr", "ja", "pt", "tr", "pl", "ca", "nl", "ar", "sv", "it", "id", "hi", "fi", "vi", "he", "uk", "el", "ms", "cs", "ro", "da", "hu", "ta", "no", "th", "ur", "hr", "bg", "lt", "la", "mi", "ml", "cy", "sk", "te", "fa", "lv", "bn", "sr", "az", "sl", "kn", "et", "mk", "br", "eu", "is", "hy", "ne", "mn", "bs", "kk", "sq", "sw", "gl", "mr", "pa", "si", "km", "sn", "yo", "so", "af", "oc", "ka", "be", "tg", "sd", "gu", "am", "yi", "lo", "uz", "fo", "ht", "ps", "tk", "nn", "mt", "sa", "lb", "my", "bo", "tl", "mg", "as", "tt", "haw", "ln", "ha", "ba", "jw", "su", "yue"],
     supports_timestamps: true,
     supports_translation: true,
@@ -39,11 +42,11 @@ const CAPABILITIES: ModelCapabilities = ModelCapabilities {
 
 /// Parameters for configuring Whisper model loading.
 #[derive(Debug, Clone)]
-pub struct WhisperModelParams {
+pub struct WhisperLoadParams {
     pub use_gpu: bool,
 }
 
-impl Default for WhisperModelParams {
+impl Default for WhisperLoadParams {
     fn default() -> Self {
         Self { use_gpu: true }
     }
@@ -103,38 +106,26 @@ impl Default for WhisperInferenceParams {
 
 /// Whisper speech recognition engine.
 pub struct WhisperEngine {
-    loaded_model_path: Option<PathBuf>,
-    state: Option<whisper_rs::WhisperState>,
-    context: Option<whisper_rs::WhisperContext>,
-}
-
-impl Default for WhisperEngine {
-    fn default() -> Self {
-        Self::new()
-    }
+    state: whisper_rs::WhisperState,
+    #[allow(dead_code)]
+    context: whisper_rs::WhisperContext,
 }
 
 impl WhisperEngine {
-    /// Create a new Whisper engine instance (unloaded).
-    pub fn new() -> Self {
-        Self {
-            loaded_model_path: None,
-            state: None,
-            context: None,
-        }
-    }
-
     /// Load a Whisper model with default parameters.
-    pub fn load_model(&mut self, model_path: &Path) -> Result<(), TranscribeError> {
-        self.load_model_with_params(model_path, WhisperModelParams::default())
+    pub fn load(model_path: &Path) -> Result<Self, TranscribeError> {
+        Self::load_with_params(model_path, WhisperLoadParams::default())
     }
 
     /// Load a Whisper model with custom parameters.
-    pub fn load_model_with_params(
-        &mut self,
+    pub fn load_with_params(
         model_path: &Path,
-        params: WhisperModelParams,
-    ) -> Result<(), TranscribeError> {
+        params: WhisperLoadParams,
+    ) -> Result<Self, TranscribeError> {
+        if !model_path.exists() {
+            return Err(TranscribeError::ModelNotFound(model_path.to_path_buf()));
+        }
+
         let mut context_params = WhisperContextParameters::default();
         context_params.use_gpu = params.use_gpu;
         let context = WhisperContext::new_with_params(
@@ -147,17 +138,7 @@ impl WhisperEngine {
             .create_state()
             .map_err(|e| TranscribeError::Inference(e.to_string()))?;
 
-        self.context = Some(context);
-        self.state = Some(state);
-        self.loaded_model_path = Some(model_path.to_path_buf());
-        Ok(())
-    }
-
-    /// Unload the current model.
-    pub fn unload_model(&mut self) {
-        self.loaded_model_path = None;
-        self.state = None;
-        self.context = None;
+        Ok(Self { state, context })
     }
 
     /// Transcribe with model-specific parameters.
@@ -166,19 +147,14 @@ impl WhisperEngine {
         samples: &[f32],
         params: &WhisperInferenceParams,
     ) -> Result<TranscriptionResult, TranscribeError> {
-        self.infer(samples.to_vec(), params)
+        self.infer(samples, params)
     }
 
     fn infer(
         &mut self,
-        samples: Vec<f32>,
+        samples: &[f32],
         params: &WhisperInferenceParams,
     ) -> Result<TranscriptionResult, TranscribeError> {
-        let state = self
-            .state
-            .as_mut()
-            .ok_or_else(|| TranscribeError::Inference("Model not loaded. Call load_model() first.".to_string()))?;
-
         let mut full_params = FullParams::new(SamplingStrategy::BeamSearch {
             beam_size: 3,
             patience: -1.0,
@@ -197,11 +173,11 @@ impl WhisperEngine {
             full_params.set_initial_prompt(prompt);
         }
 
-        state
-            .full(full_params, &samples)
+        self.state
+            .full(full_params, samples)
             .map_err(|e| TranscribeError::Inference(e.to_string()))?;
 
-        let num_segments = state
+        let num_segments = self.state
             .full_n_segments()
             .map_err(|e| TranscribeError::Inference(e.to_string()))?;
 
@@ -209,14 +185,14 @@ impl WhisperEngine {
         let mut full_text = String::new();
 
         for i in 0..num_segments {
-            let text = state
+            let text = self.state
                 .full_get_segment_text(i)
                 .map_err(|e| TranscribeError::Inference(e.to_string()))?;
-            let start = state
+            let start = self.state
                 .full_get_segment_t0(i)
                 .map_err(|e| TranscribeError::Inference(e.to_string()))? as f32
                 / 100.0;
-            let end = state
+            let end = self.state
                 .full_get_segment_t1(i)
                 .map_err(|e| TranscribeError::Inference(e.to_string()))? as f32
                 / 100.0;
@@ -236,12 +212,6 @@ impl WhisperEngine {
     }
 }
 
-impl Drop for WhisperEngine {
-    fn drop(&mut self) {
-        self.unload_model();
-    }
-}
-
 impl SpeechModel for WhisperEngine {
     fn capabilities(&self) -> ModelCapabilities {
         CAPABILITIES
@@ -256,6 +226,6 @@ impl SpeechModel for WhisperEngine {
             language: language.map(|s| s.to_string()),
             ..Default::default()
         };
-        self.infer(samples.to_vec(), &params)
+        self.infer(samples, &params)
     }
 }

@@ -50,18 +50,26 @@ pub fn create_session_with_threads(
     Ok(session)
 }
 
-/// Resolve a model file path, optionally trying quantized variant first.
+/// Resolve a model file path for the requested quantization level.
 ///
-/// If `quantized` is true, looks for `{name}.int8.onnx` first, falling back to `{name}.onnx`.
-pub fn resolve_model_path(dir: &Path, name: &str, quantized: bool) -> std::path::PathBuf {
-    if quantized {
-        let int8_path = dir.join(format!("{}.int8.onnx", name));
-        if int8_path.exists() {
-            log::info!("Loading quantized model: {}", int8_path.display());
-            return int8_path;
+/// Looks for `{name}.{suffix}.onnx` based on the quantization variant,
+/// falling back to `{name}.onnx` (FP32) if the requested file doesn't exist.
+pub fn resolve_model_path(dir: &Path, name: &str, quantization: &super::Quantization) -> std::path::PathBuf {
+    let suffix = match quantization {
+        super::Quantization::FP32 => None,
+        super::Quantization::FP16 => Some("fp16"),
+        super::Quantization::Int8 => Some("int8"),
+    };
+
+    if let Some(suffix) = suffix {
+        let path = dir.join(format!("{}.{}.onnx", name, suffix));
+        if path.exists() {
+            log::info!("Loading {} model: {}", suffix, path.display());
+            return path;
         }
-        log::warn!("Quantized model not found, falling back to {}.onnx", name);
+        log::warn!("{} model not found at {}, falling back to {}.onnx", suffix, path.display(), name);
     }
+
     dir.join(format!("{}.onnx", name))
 }
 

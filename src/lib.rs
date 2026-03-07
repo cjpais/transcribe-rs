@@ -84,6 +84,10 @@ use std::path::Path;
 pub struct ModelCapabilities {
     /// Human-readable model name.
     pub name: &'static str,
+    /// Machine-friendly engine identifier (e.g. "sense_voice", "whisper_cpp").
+    pub engine_id: &'static str,
+    /// Expected input sample rate in Hz (e.g. 16000).
+    pub sample_rate: u32,
     /// Languages supported (BCP-47 codes, e.g. "en", "zh"). Empty = any/unknown.
     pub languages: &'static [&'static str],
     /// Whether the model can produce word/segment timestamps.
@@ -104,6 +108,9 @@ pub trait SpeechModel {
     fn capabilities(&self) -> ModelCapabilities;
 
     /// Transcribe audio samples (16 kHz, mono, f32 in [-1, 1]).
+    ///
+    /// The `language` parameter is advisory — multilingual models use it as a
+    /// hint, while single-language models (e.g. Parakeet, GigaAM) ignore it.
     fn transcribe(
         &mut self,
         samples: &[f32],

@@ -1,7 +1,9 @@
+mod common;
+
 use once_cell::sync::Lazy;
 use std::path::PathBuf;
 use std::sync::Mutex;
-use transcribe_rs::whisperfile::{WhisperfileEngine, WhisperfileModelParams};
+use transcribe_rs::whisperfile::{WhisperfileEngine, WhisperfileLoadParams};
 use transcribe_rs::SpeechModel;
 
 fn binary_path() -> PathBuf {
@@ -16,35 +18,22 @@ fn model_path() -> PathBuf {
         .unwrap_or_else(|_| PathBuf::from("models/ggml-small.bin"))
 }
 
-fn binary_available() -> bool {
-    binary_path().exists()
-}
-
 static ENGINE: Lazy<Mutex<Option<WhisperfileEngine>>> = Lazy::new(|| {
-    if !binary_available() {
-        eprintln!(
-            "Whisperfile binary not found at {:?}, skipping tests",
-            binary_path()
-        );
-        return Mutex::new(None);
-    }
-
+    let binary = binary_path();
     let model = model_path();
-    if !model.exists() {
-        eprintln!("Model not found at {:?}, skipping tests", model);
+
+    if !common::require_paths(&[&binary, &model]) {
         return Mutex::new(None);
     }
 
-    let mut engine = WhisperfileEngine::new(binary_path());
-
-    let params = WhisperfileModelParams {
+    let params = WhisperfileLoadParams {
         port: 18080,
         startup_timeout_secs: 60,
         ..Default::default()
     };
 
-    match engine.load_model_with_params(&model, params) {
-        Ok(_) => Mutex::new(Some(engine)),
+    match WhisperfileEngine::load_with_params(&binary, &model, params) {
+        Ok(engine) => Mutex::new(Some(engine)),
         Err(e) => {
             eprintln!("Failed to start whisperfile server: {}", e);
             Mutex::new(None)
@@ -60,19 +49,8 @@ fn get_engine() -> Option<std::sync::MutexGuard<'static, Option<WhisperfileEngin
     Some(guard)
 }
 
-macro_rules! skip_if_unavailable {
-    () => {
-        if !binary_available() || !model_path().exists() {
-            eprintln!("Skipping test: whisperfile binary or model not available");
-            return;
-        }
-    };
-}
-
 #[test]
 fn test_jfk_transcription() {
-    skip_if_unavailable!();
-
     let mut guard = match get_engine() {
         Some(g) => g,
         None => {
@@ -120,8 +98,6 @@ fn test_jfk_transcription() {
 
 #[test]
 fn test_timestamps() {
-    skip_if_unavailable!();
-
     let mut guard = match get_engine() {
         Some(g) => g,
         None => {
@@ -191,8 +167,6 @@ fn test_timestamps() {
 
 #[test]
 fn test_transcribe_samples() {
-    skip_if_unavailable!();
-
     let mut guard = match get_engine() {
         Some(g) => g,
         None => {
@@ -228,8 +202,6 @@ fn test_transcribe_samples() {
 
 #[test]
 fn test_language_parameter() {
-    skip_if_unavailable!();
-
     let mut guard = match get_engine() {
         Some(g) => g,
         None => {

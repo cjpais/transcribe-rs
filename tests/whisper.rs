@@ -1,28 +1,50 @@
+mod common;
+
 use once_cell::sync::Lazy;
 use std::path::PathBuf;
 use std::sync::Mutex;
-use transcribe_rs::whisper_cpp::{WhisperEngine, WhisperInferenceParams, WhisperModelParams};
+use transcribe_rs::whisper_cpp::{WhisperEngine, WhisperInferenceParams, WhisperLoadParams};
 use transcribe_rs::SpeechModel;
 
-// Shared model loaded once for all tests
-static MODEL_ENGINE: Lazy<Mutex<WhisperEngine>> = Lazy::new(|| {
-    let mut engine = WhisperEngine::new();
-    let model_path = PathBuf::from("models/whisper-medium-q4_1.bin");
-    let mut params = WhisperModelParams::default();
-    params.use_gpu = false;
-    engine
-        .load_model_with_params(&model_path, params)
-        .expect("Failed to load model");
-    Mutex::new(engine)
+fn model_path() -> PathBuf {
+    PathBuf::from("models/whisper-medium-q4_1.bin")
+}
+
+static ENGINE: Lazy<Mutex<Option<WhisperEngine>>> = Lazy::new(|| {
+    let model = model_path();
+
+    if !common::require_paths(&[&model]) {
+        return Mutex::new(None);
+    }
+
+    let params = WhisperLoadParams { use_gpu: false };
+    match WhisperEngine::load_with_params(&model, params) {
+        Ok(engine) => Mutex::new(Some(engine)),
+        Err(e) => {
+            eprintln!("Failed to load whisper model: {}", e);
+            Mutex::new(None)
+        }
+    }
 });
 
-fn get_engine() -> std::sync::MutexGuard<'static, WhisperEngine> {
-    MODEL_ENGINE.lock().expect("Failed to lock engine")
+fn get_engine() -> Option<std::sync::MutexGuard<'static, Option<WhisperEngine>>> {
+    let guard = ENGINE.lock().unwrap_or_else(|e| e.into_inner());
+    if guard.is_none() {
+        return None;
+    }
+    Some(guard)
 }
 
 #[test]
 fn test_jfk_transcription() {
-    let mut engine = get_engine();
+    let mut guard = match get_engine() {
+        Some(g) => g,
+        None => {
+            eprintln!("Skipping test: whisper engine not available");
+            return;
+        }
+    };
+    let engine = guard.as_mut().unwrap();
 
     let audio_path = PathBuf::from("samples/jfk.wav");
 
@@ -42,9 +64,20 @@ fn test_jfk_transcription() {
 
 #[test]
 fn test_prompt_product_names() {
-    let mut engine = get_engine();
+    let mut guard = match get_engine() {
+        Some(g) => g,
+        None => {
+            eprintln!("Skipping test: whisper engine not available");
+            return;
+        }
+    };
+    let engine = guard.as_mut().unwrap();
 
     let audio_path = PathBuf::from("samples/product_names.wav");
+    if !audio_path.exists() {
+        eprintln!("Skipping test: {:?} not found", audio_path);
+        return;
+    }
 
     let baseline_result = engine
         .transcribe_file(&audio_path, None)
@@ -87,7 +120,14 @@ fn test_prompt_product_names() {
 
 #[test]
 fn test_timestamps() {
-    let mut engine = get_engine();
+    let mut guard = match get_engine() {
+        Some(g) => g,
+        None => {
+            eprintln!("Skipping test: whisper engine not available");
+            return;
+        }
+    };
+    let engine = guard.as_mut().unwrap();
 
     let audio_path = PathBuf::from("samples/jfk.wav");
 

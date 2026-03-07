@@ -13,7 +13,6 @@ fn get_audio_duration(path: &PathBuf) -> Result<f64, Box<dyn std::error::Error>>
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
-    let mut engine = WhisperEngine::new();
     let model_path = PathBuf::from("models/whisper-medium-q4_1.bin");
     let wav_path = PathBuf::from("samples/dots.wav");
 
@@ -24,7 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Loading model: {:?}", model_path);
 
     let load_start = Instant::now();
-    engine.load_model(&model_path)?;
+    let mut engine = WhisperEngine::load(&model_path)?;
     let load_duration = load_start.elapsed();
     println!("Model loaded in {:.2?}", load_duration);
 

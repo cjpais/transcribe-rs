@@ -1,15 +1,23 @@
+mod common;
+
 use std::path::PathBuf;
 
 use transcribe_rs::onnx::moonshine::{MoonshineModel, MoonshineVariant};
+use transcribe_rs::onnx::Quantization;
 use transcribe_rs::SpeechModel;
 
 #[test]
 fn test_moonshine_base_jfk() {
     let model_path = PathBuf::from("models/moonshine-base");
-    let mut model = MoonshineModel::load(&model_path, MoonshineVariant::Base)
-        .expect("Failed to load model");
-
     let audio_path = PathBuf::from("samples/jfk.wav");
+
+    if !common::require_paths(&[&model_path, &audio_path]) {
+        return;
+    }
+
+    let mut model =
+        MoonshineModel::load(&model_path, MoonshineVariant::Base, &Quantization::default())
+            .expect("Failed to load model");
 
     let result = model
         .transcribe_file(&audio_path, None)

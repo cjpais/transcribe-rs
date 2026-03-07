@@ -8,6 +8,7 @@ use std::io::BufReader;
 use std::path::Path;
 
 use crate::onnx::session;
+use crate::onnx::Quantization;
 use crate::{ModelCapabilities, SpeechModel, TranscribeError, TranscriptionResult};
 
 use super::{MoonshineVariant, SAMPLE_RATE};
@@ -17,6 +18,8 @@ const EOS_TOKEN_ID: i64 = 2;
 
 const CAPABILITIES: ModelCapabilities = ModelCapabilities {
     name: "Moonshine",
+    engine_id: "moonshine",
+    sample_rate: 16000,
     languages: &["en"],
     supports_timestamps: false,
     supports_translation: false,
@@ -42,9 +45,13 @@ pub struct MoonshineModel {
 }
 
 impl MoonshineModel {
-    pub fn load(model_dir: &Path, variant: MoonshineVariant) -> Result<Self, TranscribeError> {
-        let encoder_path = model_dir.join("encoder_model.onnx");
-        let decoder_path = model_dir.join("decoder_model_merged.onnx");
+    pub fn load(
+        model_dir: &Path,
+        variant: MoonshineVariant,
+        quantization: &Quantization,
+    ) -> Result<Self, TranscribeError> {
+        let encoder_path = session::resolve_model_path(model_dir, "encoder_model", quantization);
+        let decoder_path = session::resolve_model_path(model_dir, "decoder_model_merged", quantization);
 
         if !encoder_path.exists() {
             return Err(TranscribeError::ModelNotFound(encoder_path));

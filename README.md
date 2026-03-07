@@ -72,12 +72,14 @@ let result = model.transcribe_with(
 
 ```rust
 use transcribe_rs::onnx::moonshine::{MoonshineModel, MoonshineVariant};
+use transcribe_rs::onnx::Quantization;
 use transcribe_rs::SpeechModel;
 use std::path::PathBuf;
 
 let mut model = MoonshineModel::load(
     &PathBuf::from("models/moonshine-base"),
     MoonshineVariant::Base,
+    &Quantization::default(),
 )?;
 let result = model.transcribe_file(&PathBuf::from("audio.wav"), None)?;
 ```
@@ -86,12 +88,14 @@ Streaming variant:
 
 ```rust
 use transcribe_rs::onnx::moonshine::StreamingModel;
+use transcribe_rs::onnx::Quantization;
 use transcribe_rs::SpeechModel;
 use std::path::PathBuf;
 
 let mut model = StreamingModel::load(
     &PathBuf::from("models/moonshine-streaming/moonshine-tiny-streaming-en"),
     4,  // threads
+    &Quantization::default(),
 )?;
 let result = model.transcribe_file(&PathBuf::from("audio.wav"), None)?;
 ```
@@ -100,10 +104,14 @@ let result = model.transcribe_file(&PathBuf::from("audio.wav"), None)?;
 
 ```rust
 use transcribe_rs::onnx::gigaam::GigaAMModel;
+use transcribe_rs::onnx::Quantization;
 use transcribe_rs::SpeechModel;
 use std::path::PathBuf;
 
-let mut model = GigaAMModel::load(&PathBuf::from("models/giga-am-v3.int8.onnx"))?;
+let mut model = GigaAMModel::load(
+    &PathBuf::from("models/giga-am-v3"),
+    &Quantization::default(),
+)?;
 let result = model.transcribe_file(&PathBuf::from("audio.wav"), None)?;
 ```
 
@@ -113,8 +121,7 @@ let result = model.transcribe_file(&PathBuf::from("audio.wav"), None)?;
 use transcribe_rs::whisper_cpp::{WhisperEngine, WhisperInferenceParams};
 use std::path::PathBuf;
 
-let mut engine = WhisperEngine::new();
-engine.load_model(&PathBuf::from("models/whisper-medium-q4_1.bin"))?;
+let mut engine = WhisperEngine::load(&PathBuf::from("models/whisper-medium-q4_1.bin"))?;
 
 let samples = transcribe_rs::audio::read_wav_samples(&PathBuf::from("audio.wav"))?;
 let result = engine.transcribe_with(
@@ -130,14 +137,14 @@ let result = engine.transcribe_with(
 
 ```rust
 use transcribe_rs::whisperfile::{
-    WhisperfileEngine, WhisperfileInferenceParams, WhisperfileModelParams,
+    WhisperfileEngine, WhisperfileInferenceParams, WhisperfileLoadParams,
 };
 use std::path::PathBuf;
 
-let mut engine = WhisperfileEngine::new(PathBuf::from("models/whisperfile-0.9.3"));
-engine.load_model_with_params(
+let mut engine = WhisperfileEngine::load_with_params(
+    &PathBuf::from("models/whisperfile-0.9.3"),
     &PathBuf::from("models/ggml-small.bin"),
-    WhisperfileModelParams {
+    WhisperfileLoadParams {
         port: 8080,
         startup_timeout_secs: 60,
         ..Default::default()
@@ -152,8 +159,7 @@ let result = engine.transcribe_with(
         ..Default::default()
     },
 )?;
-
-engine.unload_model();
+// Server shuts down automatically when engine is dropped.
 ```
 
 ### OpenAI (Remote)
@@ -230,7 +236,14 @@ models/moonshine-streaming/moonshine-tiny-streaming-en/
 └── tokenizer.json
 ```
 
-**GigaAM**, **Whisper**: single file (e.g. `giga-am-v3.int8.onnx`, `whisper-medium-q4_1.bin`).
+**GigaAM** (directory):
+```
+models/giga-am-v3/
+├── model.onnx          (or model.int8.onnx)
+└── vocab.txt
+```
+
+**Whisper**: single file (e.g. `whisper-medium-q4_1.bin`).
 
 ### Moonshine Variants
 

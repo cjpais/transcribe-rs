@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use transcribe_rs::onnx::gigaam::GigaAMModel;
+use transcribe_rs::onnx::Quantization;
 use transcribe_rs::SpeechModel;
 
 fn get_audio_duration(path: &PathBuf) -> Result<f64, Box<dyn std::error::Error>> {
@@ -21,11 +22,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .filter(|a| !a.starts_with("--"))
         .collect();
 
+    let int8 = args.iter().any(|a| a == "--int8");
     let model_path = PathBuf::from(
         positional
             .first()
             .map(|s| s.as_str())
-            .unwrap_or("models/giga-am-v3.int8.onnx"),
+            .unwrap_or("models/gigaam-v3"),
     );
     let wav_path = PathBuf::from(
         positional
@@ -37,11 +39,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let audio_duration = get_audio_duration(&wav_path)?;
     println!("Audio duration: {:.2}s", audio_duration);
 
+    let quantization = if int8 {
+        Quantization::Int8
+    } else {
+        Quantization::FP32
+    };
+
     println!("Using GigaAM v3 engine");
-    println!("Loading model: {:?}", model_path);
+    println!(
+        "Loading model: {:?} (quantization: {})",
+        model_path,
+        if int8 { "int8" } else { "fp32" }
+    );
 
     let load_start = Instant::now();
-    let mut model = GigaAMModel::load(&model_path)?;
+    let mut model = GigaAMModel::load(&model_path, &quantization)?;
     let load_duration = load_start.elapsed();
     println!("Model loaded in {:.2?}", load_duration);
 

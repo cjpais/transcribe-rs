@@ -31,6 +31,8 @@ pub struct ParakeetParams {
 
 const CAPABILITIES: ModelCapabilities = ModelCapabilities {
     name: "Parakeet",
+    engine_id: "parakeet",
+    sample_rate: 16000,
     languages: &["en"],
     supports_timestamps: true,
     supports_translation: false,
@@ -91,11 +93,9 @@ impl ParakeetModel {
         model_dir: &Path,
         quantization: &Quantization,
     ) -> Result<Self, TranscribeError> {
-        let quantized = matches!(quantization, Quantization::Int8);
-
-        let encoder_path = session::resolve_model_path(model_dir, "encoder-model", quantized);
+        let encoder_path = session::resolve_model_path(model_dir, "encoder-model", quantization);
         let decoder_path =
-            session::resolve_model_path(model_dir, "decoder_joint-model", quantized);
+            session::resolve_model_path(model_dir, "decoder_joint-model", quantization);
         let preprocessor_path = model_dir.join("nemo128.onnx");
 
         let encoder = session::create_session(&encoder_path)?;

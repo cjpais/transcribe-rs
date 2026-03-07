@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use transcribe_rs::whisperfile::{
-    WhisperfileEngine, WhisperfileInferenceParams, WhisperfileModelParams,
+    WhisperfileEngine, WhisperfileInferenceParams, WhisperfileLoadParams,
 };
 
 fn get_audio_duration(path: &PathBuf) -> Result<f64, Box<dyn std::error::Error>> {
@@ -16,8 +16,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
     let whisperfile_binary = PathBuf::from("models/whisperfile-0.9.3");
-
-    let mut engine = WhisperfileEngine::new(whisperfile_binary);
     let model_path = PathBuf::from("models/ggml-small.bin");
     let wav_path = PathBuf::from("samples/dots.wav");
 
@@ -28,15 +26,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Loading model: {:?}", model_path);
 
     let load_start = Instant::now();
-
-    let model_params = WhisperfileModelParams {
-        port: 8080,
-        host: "127.0.0.1".to_string(),
-        startup_timeout_secs: 60,
-        ..Default::default()
-    };
-
-    engine.load_model_with_params(&model_path, model_params)?;
+    let mut engine = WhisperfileEngine::load_with_params(
+        &whisperfile_binary,
+        &model_path,
+        WhisperfileLoadParams {
+            port: 8080,
+            host: "127.0.0.1".to_string(),
+            startup_timeout_secs: 60,
+            ..Default::default()
+        },
+    )?;
     let load_duration = load_start.elapsed();
     println!("Whisperfile server started in {:.2?}", load_duration);
 
@@ -73,8 +72,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
         }
     }
-
-    engine.unload_model();
 
     Ok(())
 }

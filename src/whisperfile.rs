@@ -8,6 +8,8 @@ use crate::{ModelCapabilities, SpeechModel, TranscribeError, TranscriptionResult
 
 const CAPABILITIES: ModelCapabilities = ModelCapabilities {
     name: "Whisperfile",
+    engine_id: "whisperfile",
+    sample_rate: 16000,
     languages: &["en", "zh", "de", "es", "ru", "ko", "fr", "ja", "pt", "tr", "pl", "ca", "nl", "ar", "sv", "it", "id", "hi", "fi", "vi", "he", "uk", "el", "ms", "cs", "ro", "da", "hu", "ta", "no", "th", "ur", "hr", "bg", "lt", "la", "mi", "ml", "cy", "sk", "te", "fa", "lv", "bn", "sr", "az", "sl", "kn", "et", "mk", "br", "eu", "is", "hy", "ne", "mn", "bs", "kk", "sq", "sw", "gl", "mr", "pa", "si", "km", "sn", "yo", "so", "af", "oc", "ka", "be", "tg", "sd", "gu", "am", "yi", "lo", "uz", "fo", "ht", "ps", "tk", "nn", "mt", "sa", "lb", "my", "bo", "tl", "mg", "as", "tt", "haw", "ln", "ha", "ba", "jw", "su", "yue"],
     supports_timestamps: true,
     supports_translation: true,
@@ -16,7 +18,7 @@ const CAPABILITIES: ModelCapabilities = ModelCapabilities {
 use log::{debug, error, info, trace, warn};
 use serde::Deserialize;
 use std::io::{BufRead, BufReader, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -147,16 +149,16 @@ impl std::fmt::Display for GPUMode {
     }
 }
 
-/// Parameters for configuring Whisperfile model loading.
+/// Parameters for configuring Whisperfile server startup.
 #[derive(Debug, Clone)]
-pub struct WhisperfileModelParams {
+pub struct WhisperfileLoadParams {
     pub port: u16,
     pub host: String,
     pub startup_timeout_secs: u64,
     pub gpu: GPUMode,
 }
 
-impl Default for WhisperfileModelParams {
+impl Default for WhisperfileLoadParams {
     fn default() -> Self {
         Self {
             port: 8080,
@@ -191,7 +193,6 @@ impl Default for WhisperfileInferenceParams {
 ///
 /// Manages the whisperfile server lifecycle automatically.
 pub struct WhisperfileEngine {
-    binary_path: PathBuf,
     server_url: String,
     agent: Agent,
     server_process: Option<Child>,
@@ -200,36 +201,23 @@ pub struct WhisperfileEngine {
 }
 
 impl WhisperfileEngine {
-    pub fn new(binary_path: impl Into<PathBuf>) -> Self {
-        Self {
-            binary_path: binary_path.into(),
-            server_url: String::new(),
-            agent: Agent::new_with_defaults(),
-            server_process: None,
-            log_shutdown: Arc::new(AtomicBool::new(false)),
-            log_thread: None,
-        }
+    /// Load a Whisperfile engine with default server parameters.
+    pub fn load(binary_path: &Path, model_path: &Path) -> Result<Self, TranscribeError> {
+        Self::load_with_params(binary_path, model_path, WhisperfileLoadParams::default())
     }
 
-    /// Load a model with default parameters.
-    pub fn load_model(&mut self, model_path: &Path) -> Result<(), TranscribeError> {
-        self.load_model_with_params(model_path, WhisperfileModelParams::default())
-    }
-
-    /// Load a model with custom server parameters.
-    pub fn load_model_with_params(
-        &mut self,
+    /// Load a Whisperfile engine with custom server parameters.
+    pub fn load_with_params(
+        binary_path: &Path,
         model_path: &Path,
-        params: WhisperfileModelParams,
-    ) -> Result<(), TranscribeError> {
-        self.unload_model();
-
-        if !self.binary_path.exists() {
+        params: WhisperfileLoadParams,
+    ) -> Result<Self, TranscribeError> {
+        if !binary_path.exists() {
             warn!(
                 "Whisperfile binary not found: {}",
-                self.binary_path.display()
+                binary_path.display()
             );
-            return Err(TranscribeError::ModelNotFound(self.binary_path.clone()));
+            return Err(TranscribeError::ModelNotFound(binary_path.to_path_buf()));
         }
 
         if !model_path.exists() {
@@ -237,18 +225,19 @@ impl WhisperfileEngine {
             return Err(TranscribeError::ModelNotFound(model_path.to_path_buf()));
         }
 
-        self.server_url = format!("http://{}:{}", params.host, params.port);
+        let server_url = format!("http://{}:{}", params.host, params.port);
+        let log_shutdown = Arc::new(AtomicBool::new(false));
 
         info!(
             "Starting whisperfile server: binary={}, model={}, host={}, port={}, gpu={}",
-            self.binary_path.display(),
+            binary_path.display(),
             model_path.display(),
             params.host,
             params.port,
             params.gpu
         );
 
-        let mut child = Command::new(&self.binary_path)
+        let mut child = Command::new(binary_path)
             .arg("--server")
             .arg("-m")
             .arg(model_path)
@@ -268,11 +257,10 @@ impl WhisperfileEngine {
 
         debug!("Whisperfile server process spawned (pid: {:?})", child.id());
 
-        self.log_shutdown.store(false, Ordering::SeqCst);
-
+        let mut log_thread = None;
         if let Some(stderr) = child.stderr.take() {
-            let shutdown_flag = Arc::clone(&self.log_shutdown);
-            let log_thread = std::thread::spawn(move || {
+            let shutdown_flag = Arc::clone(&log_shutdown);
+            log_thread = Some(std::thread::spawn(move || {
                 let reader = BufReader::new(stderr);
                 for line in reader.lines() {
                     if shutdown_flag.load(Ordering::SeqCst) {
@@ -289,19 +277,23 @@ impl WhisperfileEngine {
                     }
                 }
                 trace!("Whisperfile log reader thread exiting");
-            });
-            self.log_thread = Some(log_thread);
+            }));
         }
 
-        self.server_process = Some(child);
+        let engine = Self {
+            server_url,
+            agent: Agent::new_with_defaults(),
+            server_process: Some(child),
+            log_shutdown,
+            log_thread,
+        };
 
-        self.wait_for_server(Duration::from_secs(params.startup_timeout_secs))?;
+        engine.wait_for_server(Duration::from_secs(params.startup_timeout_secs))?;
 
-        Ok(())
+        Ok(engine)
     }
 
-    /// Unload the current model and stop the server.
-    pub fn unload_model(&mut self) {
+    fn shutdown(&mut self) {
         self.log_shutdown.store(true, Ordering::SeqCst);
 
         if let Some(mut child) = self.server_process.take() {
@@ -325,7 +317,7 @@ impl WhisperfileEngine {
         samples: &[f32],
         params: &WhisperfileInferenceParams,
     ) -> Result<TranscriptionResult, TranscribeError> {
-        self.transcribe_samples_inner(samples.to_vec(), Some(params.clone()))
+        self.transcribe_samples_inner(samples, Some(params.clone()))
     }
 
     /// Transcribe a WAV file with model-specific parameters.
@@ -334,11 +326,6 @@ impl WhisperfileEngine {
         wav_path: &Path,
         params: &WhisperfileInferenceParams,
     ) -> Result<TranscriptionResult, TranscribeError> {
-        if self.server_process.is_none() {
-            warn!("Attempted to transcribe file without loading model");
-            return Err(TranscribeError::Inference("Model not loaded. Call load_model() first.".to_string()));
-        }
-
         debug!("Transcribing file: {}", wav_path.display());
         let wav_data = std::fs::read(wav_path)?;
         self.transcribe_wav_bytes(wav_data, Some(params.clone()))
@@ -380,15 +367,10 @@ impl WhisperfileEngine {
     }
 
     fn transcribe_samples_inner(
-        &mut self,
-        samples: Vec<f32>,
+        &self,
+        samples: &[f32],
         params: Option<WhisperfileInferenceParams>,
     ) -> Result<TranscriptionResult, TranscribeError> {
-        if self.server_process.is_none() {
-            warn!("Attempted to transcribe samples without loading model");
-            return Err(TranscribeError::Inference("Model not loaded. Call load_model() first.".to_string()));
-        }
-
         debug!("Transcribing {} samples", samples.len());
 
         let mut wav_buffer = std::io::Cursor::new(Vec::new());
@@ -400,7 +382,7 @@ impl WhisperfileEngine {
         };
 
         let mut writer = hound::WavWriter::new(&mut wav_buffer, spec)?;
-        for sample in &samples {
+        for sample in samples {
             let sample_i16 = (sample * i16::MAX as f32) as i16;
             writer.write_sample(sample_i16)?;
         }
@@ -484,7 +466,7 @@ impl WhisperfileEngine {
 
 impl Drop for WhisperfileEngine {
     fn drop(&mut self) {
-        self.unload_model();
+        self.shutdown();
     }
 }
 
@@ -502,6 +484,6 @@ impl SpeechModel for WhisperfileEngine {
             language: language.map(|s| s.to_string()),
             ..Default::default()
         };
-        self.transcribe_samples_inner(samples.to_vec(), Some(params))
+        self.transcribe_samples_inner(samples, Some(params))
     }
 }

@@ -1,4 +1,3 @@
-use base64::{engine::general_purpose::STANDARD, Engine as _};
 use ndarray::Array1;
 use ort::inputs;
 use ort::session::Session;
@@ -6,7 +5,7 @@ use ort::value::TensorRef;
 use std::collections::HashMap;
 use std::path::Path;
 
-use crate::decode::{ctc_greedy_decode, CtcDecoderResult};
+use crate::decode::{ctc_greedy_decode, CtcDecoderResult, SymbolTable};
 use crate::features::{apply_cmvn, apply_lfr, compute_mel, MelConfig, WindowType};
 use crate::TranscribeError;
 use super::session;
@@ -15,6 +14,8 @@ use crate::{ModelCapabilities, SpeechModel, TranscriptionResult, TranscriptionSe
 
 const CAPABILITIES: ModelCapabilities = ModelCapabilities {
     name: "SenseVoice",
+    engine_id: "sense_voice",
+    sample_rate: 16000,
     languages: &["zh", "en", "ja", "ko", "yue"],
     supports_timestamps: true,
     supports_translation: false,
@@ -28,55 +29,6 @@ pub struct SenseVoiceParams {
     pub language: Option<String>,
     /// Whether to apply inverse text normalization. Defaults to true.
     pub use_itn: Option<bool>,
-}
-
-// ---- SymbolTable (moved from decode/tokens.rs, only consumer is SenseVoice) ----
-
-/// Symbol table mapping token IDs to strings.
-pub(crate) struct SymbolTable {
-    id_to_sym: HashMap<i64, String>,
-}
-
-impl SymbolTable {
-    pub fn load(path: &Path) -> Result<Self, std::io::Error> {
-        let contents = std::fs::read_to_string(path)?;
-        let mut id_to_sym = HashMap::new();
-
-        for line in contents.lines() {
-            let line = line.trim();
-            if line.is_empty() {
-                continue;
-            }
-
-            let parts: Vec<&str> = line.rsplitn(2, |c: char| c.is_whitespace()).collect();
-            if parts.len() == 2 {
-                if let Ok(id) = parts[0].parse::<i64>() {
-                    id_to_sym.insert(id, parts[1].to_string());
-                }
-            }
-        }
-
-        log::info!("Loaded {} tokens from {:?}", id_to_sym.len(), path);
-        Ok(Self { id_to_sym })
-    }
-
-    pub fn apply_base64_decode(&mut self) {
-        for sym in self.id_to_sym.values_mut() {
-            if let Ok(bytes) = STANDARD.decode(sym.as_bytes()) {
-                if let Ok(decoded) = String::from_utf8(bytes) {
-                    *sym = decoded;
-                }
-            }
-        }
-    }
-
-    pub fn get(&self, id: i64) -> Option<&str> {
-        self.id_to_sym.get(&id).map(|s| s.as_str())
-    }
-
-    pub fn get_or_empty(&self, id: i64) -> &str {
-        self.id_to_sym.get(&id).map(|s| s.as_str()).unwrap_or("")
-    }
 }
 
 // ---- Model ----
@@ -104,8 +56,7 @@ pub struct SenseVoiceModel {
 
 impl SenseVoiceModel {
     pub fn load(model_dir: &Path, quantization: &Quantization) -> Result<Self, TranscribeError> {
-        let quantized = matches!(quantization, Quantization::Int8);
-        let model_path = session::resolve_model_path(model_dir, "model", quantized);
+        let model_path = session::resolve_model_path(model_dir, "model", quantization);
         let tokens_path = model_dir.join("tokens.txt");
 
         if !model_path.exists() {

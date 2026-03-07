@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use transcribe_rs::onnx::moonshine::StreamingModel;
+use transcribe_rs::onnx::Quantization;
 use transcribe_rs::SpeechModel;
 
 fn get_audio_duration(path: &PathBuf) -> Result<f64, Box<dyn std::error::Error>> {
@@ -53,7 +54,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Loading model: {:?}", model_path);
 
     let load_start = Instant::now();
-    let mut model = StreamingModel::load(&model_path, 4)?;
+    let mut model = StreamingModel::load(&model_path, 4, &Quantization::default())?;
     let load_duration = load_start.elapsed();
     println!("Model loaded in {:.2?}", load_duration);
 

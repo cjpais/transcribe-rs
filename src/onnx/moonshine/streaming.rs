@@ -8,6 +8,7 @@ use std::io::Read;
 use std::path::Path;
 
 use crate::onnx::session;
+use crate::onnx::Quantization;
 use crate::{ModelCapabilities, SpeechModel, TranscribeError, TranscriptionResult};
 
 use super::SAMPLE_RATE;
@@ -16,6 +17,8 @@ const CHUNK_SIZE: usize = 1280;
 
 const STREAMING_CAPABILITIES: ModelCapabilities = ModelCapabilities {
     name: "Moonshine Streaming",
+    engine_id: "moonshine_streaming",
+    sample_rate: 16000,
     languages: &["en"],
     supports_timestamps: false,
     supports_translation: false,
@@ -276,22 +279,40 @@ impl StreamingModel {
     pub fn load(
         model_dir: &Path,
         num_threads: usize,
+        quantization: &Quantization,
     ) -> Result<Self, TranscribeError> {
         let config = StreamingConfig::load(model_dir)?;
 
         let load = |name: &str| -> Result<Session, TranscribeError> {
-            let ort_path = model_dir.join(format!("{}.ort", name));
-            let onnx_path = model_dir.join(format!("{}.onnx", name));
-
-            let path = if ort_path.exists() {
-                ort_path
-            } else if onnx_path.exists() {
-                onnx_path
-            } else {
-                return Err(TranscribeError::ModelNotFound(model_dir.join(format!("{}.ort", name))));
+            // Try quantized variants first if requested, preferring .ort format
+            let suffix = match quantization {
+                Quantization::FP32 => None,
+                Quantization::FP16 => Some("fp16"),
+                Quantization::Int8 => Some("int8"),
             };
 
-            Ok(session::create_session_with_threads(&path, num_threads)?)
+            let candidates: Vec<std::path::PathBuf> = if let Some(suffix) = suffix {
+                vec![
+                    model_dir.join(format!("{}.{}.ort", name, suffix)),
+                    model_dir.join(format!("{}.ort", name)),
+                    model_dir.join(format!("{}.{}.onnx", name, suffix)),
+                    model_dir.join(format!("{}.onnx", name)),
+                ]
+            } else {
+                vec![
+                    model_dir.join(format!("{}.ort", name)),
+                    model_dir.join(format!("{}.onnx", name)),
+                ]
+            };
+
+            for path in &candidates {
+                if path.exists() {
+                    log::info!("Loading streaming model component: {}", path.display());
+                    return Ok(session::create_session_with_threads(path, num_threads)?);
+                }
+            }
+
+            Err(TranscribeError::ModelNotFound(candidates.into_iter().next().unwrap()))
         };
 
         let frontend = load("frontend")?;
