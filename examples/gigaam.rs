@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use transcribe_rs::{engines::gigaam::GigaAMEngine, TranscriptionEngine};
+use transcribe_rs::onnx::gigaam::GigaAMModel;
+use transcribe_rs::onnx::Quantization;
+use transcribe_rs::SpeechModel;
 
 fn get_audio_duration(path: &PathBuf) -> Result<f64, Box<dyn std::error::Error>> {
     let reader = hound::WavReader::open(path)?;
@@ -20,11 +22,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .filter(|a| !a.starts_with("--"))
         .collect();
 
+    let int8 = args.iter().any(|a| a == "--int8");
     let model_path = PathBuf::from(
         positional
             .first()
             .map(|s| s.as_str())
-            .unwrap_or("models/v3_e2e_ctc.int8.onnx"),
+            .unwrap_or("models/gigaam-v3"),
     );
     let wav_path = PathBuf::from(
         positional
@@ -36,19 +39,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let audio_duration = get_audio_duration(&wav_path)?;
     println!("Audio duration: {:.2}s", audio_duration);
 
-    println!("Using GigaAM v3 engine");
-    println!("Loading model: {:?}", model_path);
+    let quantization = if int8 {
+        Quantization::Int8
+    } else {
+        Quantization::FP32
+    };
 
-    let mut engine = GigaAMEngine::new();
+    println!("Using GigaAM v3 engine");
+    println!(
+        "Loading model: {:?} (quantization: {})",
+        model_path,
+        if int8 { "int8" } else { "fp32" }
+    );
+
     let load_start = Instant::now();
-    engine.load_model(&model_path)?;
+    let mut model = GigaAMModel::load(&model_path, &quantization)?;
     let load_duration = load_start.elapsed();
     println!("Model loaded in {:.2?}", load_duration);
 
     println!("Transcribing file: {:?}", wav_path);
     let transcribe_start = Instant::now();
 
-    let result = engine.transcribe_file(&wav_path, None)?;
+    let result = model.transcribe_file(&wav_path, &transcribe_rs::TranscribeOptions::default())?;
     let transcribe_duration = transcribe_start.elapsed();
     println!("Transcription completed in {:.2?}", transcribe_duration);
 
@@ -70,8 +82,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
         }
     }
-
-    engine.unload_model();
 
     Ok(())
 }

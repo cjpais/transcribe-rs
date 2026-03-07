@@ -1,10 +1,8 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use transcribe_rs::{
-    engines::sense_voice::{SenseVoiceEngine, SenseVoiceModelParams},
-    TranscriptionEngine,
-};
+use transcribe_rs::onnx::sense_voice::{SenseVoiceModel, SenseVoiceParams};
+use transcribe_rs::onnx::Quantization;
 
 fn get_audio_duration(path: &PathBuf) -> Result<f64, Box<dyn std::error::Error>> {
     let reader = hound::WavReader::open(path)?;
@@ -28,7 +26,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         positional
             .first()
             .map(|s| s.as_str())
-            .unwrap_or("models/sense-voice"),
+            .unwrap_or("models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"),
     );
     let wav_path = PathBuf::from(
         positional
@@ -37,10 +35,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .unwrap_or("samples/dots.wav"),
     );
 
-    let model_params = if int8 {
-        SenseVoiceModelParams::int8()
+    let quantization = if int8 {
+        Quantization::Int8
     } else {
-        SenseVoiceModelParams::fp32()
+        Quantization::FP32
     };
 
     let audio_duration = get_audio_duration(&wav_path)?;
@@ -53,16 +51,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if int8 { "int8" } else { "fp32" }
     );
 
-    let mut engine = SenseVoiceEngine::new();
     let load_start = Instant::now();
-    engine.load_model_with_params(&model_path, model_params)?;
+    let mut model = SenseVoiceModel::load(&model_path, &quantization)?;
     let load_duration = load_start.elapsed();
     println!("Model loaded in {:.2?}", load_duration);
 
     println!("Transcribing file: {:?}", wav_path);
     let transcribe_start = Instant::now();
 
-    let result = engine.transcribe_file(&wav_path, None)?;
+    let samples = transcribe_rs::audio::read_wav_samples(&wav_path)?;
+    let result = model.transcribe_with(
+        &samples,
+        &SenseVoiceParams {
+            language: Some("en".to_string()),
+            ..Default::default()
+        },
+    )?;
     let transcribe_duration = transcribe_start.elapsed();
     println!("Transcription completed in {:.2?}", transcribe_duration);
 
@@ -84,8 +88,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
         }
     }
-
-    engine.unload_model();
 
     Ok(())
 }

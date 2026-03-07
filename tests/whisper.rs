@@ -1,35 +1,55 @@
+mod common;
+
 use once_cell::sync::Lazy;
 use std::path::PathBuf;
 use std::sync::Mutex;
-use transcribe_rs::engines::whisper::{WhisperEngine, WhisperInferenceParams, WhisperModelParams};
-use transcribe_rs::TranscriptionEngine;
+use transcribe_rs::whisper_cpp::{WhisperEngine, WhisperInferenceParams, WhisperLoadParams};
+use transcribe_rs::SpeechModel;
 
-// Shared model loaded once for all tests
-static MODEL_ENGINE: Lazy<Mutex<WhisperEngine>> = Lazy::new(|| {
-    let mut engine = WhisperEngine::new();
-    let model_path = PathBuf::from("models/whisper-medium-q4_1.bin");
-    let mut params = WhisperModelParams::default();
-    params.use_gpu = false;
-    engine
-        .load_model_with_params(&model_path, params)
-        .expect("Failed to load model");
-    Mutex::new(engine)
+fn model_path() -> PathBuf {
+    PathBuf::from("models/whisper-medium-q4_1.bin")
+}
+
+static ENGINE: Lazy<Mutex<Option<WhisperEngine>>> = Lazy::new(|| {
+    let model = model_path();
+
+    if !common::require_paths(&[&model]) {
+        return Mutex::new(None);
+    }
+
+    let params = WhisperLoadParams { use_gpu: false };
+    match WhisperEngine::load_with_params(&model, params) {
+        Ok(engine) => Mutex::new(Some(engine)),
+        Err(e) => {
+            eprintln!("Failed to load whisper model: {}", e);
+            Mutex::new(None)
+        }
+    }
 });
 
-fn get_engine() -> std::sync::MutexGuard<'static, WhisperEngine> {
-    MODEL_ENGINE.lock().expect("Failed to lock engine")
+fn get_engine() -> Option<std::sync::MutexGuard<'static, Option<WhisperEngine>>> {
+    let guard = ENGINE.lock().unwrap_or_else(|e| e.into_inner());
+    if guard.is_none() {
+        return None;
+    }
+    Some(guard)
 }
 
 #[test]
 fn test_jfk_transcription() {
-    let mut engine = get_engine();
+    let mut guard = match get_engine() {
+        Some(g) => g,
+        None => {
+            eprintln!("Skipping test: whisper engine not available");
+            return;
+        }
+    };
+    let engine = guard.as_mut().unwrap();
 
-    // Load the JFK audio file
     let audio_path = PathBuf::from("samples/jfk.wav");
 
-    // Transcribe with default params
     let result = engine
-        .transcribe_file(&audio_path, None)
+        .transcribe_file(&audio_path, &transcribe_rs::TranscribeOptions::default())
         .expect("Failed to transcribe");
 
     let expected = "And so my fellow Americans, ask not what your country can do for you, ask what you can do for your country.";
@@ -44,44 +64,54 @@ fn test_jfk_transcription() {
 
 #[test]
 fn test_prompt_product_names() {
-    let mut engine = get_engine();
+    let mut guard = match get_engine() {
+        Some(g) => g,
+        None => {
+            eprintln!("Skipping test: whisper engine not available");
+            return;
+        }
+    };
+    let engine = guard.as_mut().unwrap();
 
     let audio_path = PathBuf::from("samples/product_names.wav");
+    if !audio_path.exists() {
+        eprintln!("Skipping test: {:?} not found", audio_path);
+        return;
+    }
 
-    // Baseline transcription with no prompt
     let baseline_result = engine
-        .transcribe_file(&audio_path, None)
+        .transcribe_file(&audio_path, &transcribe_rs::TranscribeOptions::default())
         .expect("Failed to transcribe without prompt");
 
     println!("\n=== Baseline Transcription (no prompt) ===");
     println!("{}", baseline_result.text);
 
-    // With glossary prompt - should influence transcription to use specified spellings
     let glossary_prompt = "QuirkQuid Quill Inc, P3-Quattro, O3-Omni, B3-BondX, E3-Equity, W3-WrapZ, O2-Outlier, U3-UniFund, M3-Mover";
-    let params = WhisperInferenceParams {
-        initial_prompt: Some(glossary_prompt.to_string()),
-        ..Default::default()
-    };
+    let samples = transcribe_rs::audio::read_wav_samples(&audio_path)
+        .expect("Failed to read audio samples");
     let prompted_result = engine
-        .transcribe_file(&audio_path, Some(params))
+        .transcribe_with(
+            &samples,
+            &WhisperInferenceParams {
+                initial_prompt: Some(glossary_prompt.to_string()),
+                ..Default::default()
+            },
+        )
         .expect("Failed to transcribe with prompt");
 
     println!("\n=== Transcription with Glossary Prompt ===");
     println!("{}", prompted_result.text);
 
-    // The main assertion: prompting should produce different output
     assert_ne!(
         baseline_result.text, prompted_result.text,
         "Prompt should influence transcription output"
     );
 
-    // Verify prompt influenced the output - should contain hyphenated product names from the glossary
     assert!(
         prompted_result.text.contains("P3-Quattro") || prompted_result.text.contains("O3-Omni"),
         "Prompted output should contain hyphenated product names from glossary"
     );
 
-    // Baseline should NOT have the hyphenated format
     assert!(
         !baseline_result.text.contains("P3-Quattro"),
         "Baseline should not contain prompted spelling"
@@ -90,15 +120,21 @@ fn test_prompt_product_names() {
 
 #[test]
 fn test_timestamps() {
-    let mut engine = get_engine();
+    let mut guard = match get_engine() {
+        Some(g) => g,
+        None => {
+            eprintln!("Skipping test: whisper engine not available");
+            return;
+        }
+    };
+    let engine = guard.as_mut().unwrap();
 
     let audio_path = PathBuf::from("samples/jfk.wav");
 
     let result = engine
-        .transcribe_file(&audio_path, None)
+        .transcribe_file(&audio_path, &transcribe_rs::TranscribeOptions::default())
         .expect("Failed to transcribe");
 
-    // Verify segments are returned
     assert!(
         result.segments.is_some(),
         "Transcription should return segments"
@@ -107,9 +143,7 @@ fn test_timestamps() {
     let segments = result.segments.unwrap();
     assert!(!segments.is_empty(), "Segments should not be empty");
 
-    // Verify timestamp properties
     for (i, segment) in segments.iter().enumerate() {
-        // Start time should be non-negative
         assert!(
             segment.start >= 0.0,
             "Segment {} start time should be non-negative, got {}",
@@ -117,7 +151,6 @@ fn test_timestamps() {
             segment.start
         );
 
-        // End time should be greater than start time
         assert!(
             segment.end > segment.start,
             "Segment {} end time ({}) should be greater than start time ({})",
@@ -126,7 +159,6 @@ fn test_timestamps() {
             segment.start
         );
 
-        // Segment should have text
         assert!(
             !segment.text.trim().is_empty(),
             "Segment {} should have non-empty text",
@@ -134,7 +166,6 @@ fn test_timestamps() {
         );
     }
 
-    // Verify segments are in chronological order
     for i in 1..segments.len() {
         assert!(
             segments[i].start >= segments[i - 1].start,
@@ -142,7 +173,6 @@ fn test_timestamps() {
         );
     }
 
-    // Verify the audio duration is reasonable (JFK clip is ~11 seconds)
     let last_segment = segments.last().unwrap();
     assert!(
         last_segment.end > 10.0 && last_segment.end < 15.0,

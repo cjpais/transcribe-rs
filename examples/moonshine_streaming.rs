@@ -1,10 +1,9 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use transcribe_rs::{
-    engines::moonshine::{MoonshineStreamingEngine, StreamingModelParams},
-    TranscriptionEngine,
-};
+use transcribe_rs::onnx::moonshine::StreamingModel;
+use transcribe_rs::onnx::Quantization;
+use transcribe_rs::SpeechModel;
 
 fn get_audio_duration(path: &PathBuf) -> Result<f64, Box<dyn std::error::Error>> {
     let reader = hound::WavReader::open(path)?;
@@ -37,9 +36,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let model_path = match args.get(1).map(|s| s.as_str()) {
-        None | Some("tiny") => PathBuf::from("models/moonshine-streaming/tiny-streaming-en"),
-        Some("small") => PathBuf::from("models/moonshine-streaming/small-streaming-en"),
-        Some("medium") => PathBuf::from("models/moonshine-streaming/medium-streaming-en"),
+        None | Some("tiny") => PathBuf::from("models/moonshine-streaming/moonshine-tiny-streaming-en"),
+        Some("small") => PathBuf::from("models/moonshine-streaming/moonshine-small-streaming-en"),
+        Some("medium") => PathBuf::from("models/moonshine-streaming/moonshine-medium-streaming-en"),
         Some(path) => PathBuf::from(path),
     };
 
@@ -54,16 +53,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Using Moonshine streaming engine");
     println!("Loading model: {:?}", model_path);
 
-    let mut engine = MoonshineStreamingEngine::new();
-
     let load_start = Instant::now();
-    engine.load_model_with_params(&model_path, StreamingModelParams::default())?;
+    let mut model = StreamingModel::load(&model_path, 4, &Quantization::default())?;
     let load_duration = load_start.elapsed();
     println!("Model loaded in {:.2?}", load_duration);
 
     println!("Transcribing file: {:?}", wav_path);
     let transcribe_start = Instant::now();
-    let result = engine.transcribe_file(&wav_path, None)?;
+    let result = model.transcribe_file(&wav_path, &transcribe_rs::TranscribeOptions::default())?;
     let transcribe_duration = transcribe_start.elapsed();
 
     println!("Transcription completed in {:.2?}", transcribe_duration);
@@ -76,8 +73,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Transcription result:");
     println!("{}", result.text);
-
-    engine.unload_model();
 
     Ok(())
 }

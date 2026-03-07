@@ -1,46 +1,50 @@
 //! # transcribe-rs
 //!
 //! A Rust library providing unified transcription capabilities using multiple speech recognition engines.
-//! Currently supports Whisper and Parakeet (NeMo) models for accurate speech-to-text transcription.
 //!
 //! ## Features
 //!
-//! - **Multiple Engines**: Support for both Whisper and Parakeet transcription engines
-//! - **Flexible Model Loading**: Load models with custom parameters (quantization, etc.)
-//! - **Timestamped Results**: Get detailed timing information for transcribed segments
-//! - **Audio Processing**: Built-in WAV file processing with proper format validation
-//! - **Unified API**: Common trait-based interface for all transcription engines
+//! - **ONNX Models**: SenseVoice, GigaAM, Parakeet, Moonshine (requires `onnx` feature)
+//! - **Whisper**: OpenAI Whisper via GGML (requires `whisper-cpp` feature)
+//! - **Whisperfile**: Mozilla Whisperfile server (requires `whisperfile` feature)
+//! - **Remote**: OpenAI API (requires `openai` feature)
+//! - **Timestamped Results**: Detailed timing information for transcribed segments
+//! - **Unified API**: `SpeechModel` trait for all local engines
 //!
-//! ## Model Format Requirements
+//! ## Backend Categories
 //!
-//! - **Whisper**: Expects a single GGML format file (e.g., `whisper-medium-q4_1.bin`)
-//! - **Parakeet**: Expects a directory containing the model files (e.g., `parakeet-v0.3/`)
+//! This crate provides two categories of transcription backend:
+//!
+//! - **Local models** implement [`SpeechModel`] and run inference in-process or via
+//!   a local binary. This includes all ONNX models, Whisper (via whisper.cpp), and
+//!   Whisperfile.
+//! - **Remote services** implement [`RemoteTranscriptionEngine`] (requires `openai`
+//!   feature) and make async network calls to external APIs. This includes OpenAI.
+//!
+//! These traits are intentionally separate because the execution model differs:
+//! local models are synchronous and take audio samples directly, while remote
+//! services are async and may only accept file uploads.
 //!
 //! ## Quick Start
 //!
 //! ```toml
 //! [dependencies]
-//! transcribe-rs = { version = "0.2", features = ["whisper"] }
+//! transcribe-rs = { version = "0.3", features = ["onnx"] }
 //! ```
 //!
 //! ```ignore
 //! use std::path::PathBuf;
-//! use transcribe_rs::{engines::whisper::WhisperEngine, TranscriptionEngine};
+//! use transcribe_rs::onnx::sense_voice::{SenseVoiceModel, SenseVoiceParams};
+//! use transcribe_rs::onnx::Quantization;
+//! use transcribe_rs::SpeechModel;
 //!
-//! let mut engine = WhisperEngine::new();
-//! engine.load_model(&PathBuf::from("models/whisper-medium-q4_1.bin"))?;
+//! let mut model = SenseVoiceModel::load(
+//!     &PathBuf::from("models/sense-voice"),
+//!     &Quantization::Int8,
+//! )?;
 //!
-//! let result = engine.transcribe_file(&PathBuf::from("audio.wav"), None)?;
+//! let result = model.transcribe(&samples, &transcribe_rs::TranscribeOptions::default())?;
 //! println!("Transcription: {}", result.text);
-//!
-//! if let Some(segments) = result.segments {
-//!     for segment in segments {
-//!         println!(
-//!             "[{:.2}s - {:.2}s]: {}",
-//!             segment.start, segment.end, segment.text
-//!         );
-//!     }
-//! }
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
@@ -51,21 +55,112 @@
 //! - 16 kHz sample rate
 //! - 16-bit samples
 //! - Mono (single channel)
+//!
+//! ## Migrating from 0.2.x to 0.3.0
+//!
+//! Version 0.3.0 is a breaking release. If you need the old API, pin to `version = "=0.2.9"`.
+//!
+//! **`SpeechModel::transcribe` signature changed:**
+//!
+//! ```rust,ignore
+//! // Before (0.2.x):
+//! model.transcribe(&samples, Some("en"))?;
+//! model.transcribe_file(&path, None)?;
+//!
+//! // After (0.3.0):
+//! use transcribe_rs::TranscribeOptions;
+//! model.transcribe(&samples, &TranscribeOptions { language: Some("en".into()), ..Default::default() })?;
+//! model.transcribe_file(&path, &TranscribeOptions::default())?;
+//! ```
+//!
+//! **`SpeechModel` now requires `Send`**, enabling `Box<dyn SpeechModel + Send>` for
+//! use across threads.
+//!
+//! **`TranscribeOptions` includes a `translate` field** (default `false`). Engines that
+//! support translation (Whisper, Whisperfile) will translate to English when set to `true`.
+//!
+//! **Whisper capabilities are now dynamic.** `WhisperEngine::capabilities()` returns the
+//! actual language support of the loaded model (English-only vs multilingual) rather than
+//! always reporting all 99 languages.
 
 pub mod audio;
-pub mod engines;
+pub mod error;
+pub use error::TranscribeError;
+
+#[cfg(feature = "audio-features")]
+pub mod features;
+#[cfg(feature = "audio-features")]
+pub mod decode;
+#[cfg(feature = "onnx")]
+pub mod onnx;
+
+#[cfg(feature = "whisper-cpp")]
+pub mod whisper_cpp;
+#[cfg(feature = "whisperfile")]
+pub mod whisperfile;
 
 #[cfg(feature = "openai")]
 pub mod remote;
 #[cfg(feature = "openai")]
 pub use remote::RemoteTranscriptionEngine;
 
-#[cfg(feature = "itn")]
-pub mod itn;
-#[cfg(feature = "itn")]
-pub use itn::apply_itn;
-
 use std::path::Path;
+
+/// Describes the capabilities of a speech model.
+#[derive(Debug, Clone)]
+pub struct ModelCapabilities {
+    /// Human-readable model name.
+    pub name: &'static str,
+    /// Machine-friendly engine identifier (e.g. "sense_voice", "whisper_cpp").
+    pub engine_id: &'static str,
+    /// Expected input sample rate in Hz (e.g. 16000).
+    pub sample_rate: u32,
+    /// Languages supported (BCP-47 codes, e.g. "en", "zh"). Empty = any/unknown.
+    pub languages: &'static [&'static str],
+    /// Whether the model can produce word/segment timestamps.
+    pub supports_timestamps: bool,
+    /// Whether the model can translate to English.
+    pub supports_translation: bool,
+    /// Whether the model supports streaming inference.
+    pub supports_streaming: bool,
+}
+
+/// Options for transcription.
+#[derive(Debug, Clone, Default)]
+pub struct TranscribeOptions {
+    /// Language hint (BCP-47 code, e.g. "en", "zh").
+    /// Multilingual models use this as a hint; single-language models ignore it.
+    pub language: Option<String>,
+    /// Whether to translate the output to English (only supported by some engines).
+    pub translate: bool,
+}
+
+/// Unified interface for speech-to-text models.
+///
+/// Each model implements this trait to provide a common transcription API.
+/// Model-specific parameters are exposed via a separate `transcribe_with()` method
+/// on the concrete type.
+pub trait SpeechModel: Send {
+    /// Report this model's capabilities.
+    fn capabilities(&self) -> ModelCapabilities;
+
+    /// Transcribe audio samples (16 kHz, mono, f32 in [-1, 1]).
+    fn transcribe(
+        &mut self,
+        samples: &[f32],
+        options: &TranscribeOptions,
+    ) -> Result<TranscriptionResult, TranscribeError>;
+
+    /// Transcribe a WAV file (16 kHz, 16-bit, mono).
+    fn transcribe_file(
+        &mut self,
+        wav_path: &Path,
+        options: &TranscribeOptions,
+    ) -> Result<TranscriptionResult, TranscribeError> {
+        let samples = audio::read_wav_samples(wav_path)?;
+        self.transcribe(&samples, options)
+    }
+}
 
 /// The result of a transcription operation.
 ///
@@ -91,124 +186,4 @@ pub struct TranscriptionSegment {
     pub end: f32,
     /// The transcribed text for this segment
     pub text: String,
-}
-
-/// Common interface for speech transcription engines.
-///
-/// This trait defines the standard operations that all transcription engines must support.
-/// Each engine may have different parameter types for model loading and inference configuration.
-///
-/// # Examples
-///
-/// ## Using Whisper Engine (requires `whisper` feature)
-///
-/// ```ignore
-/// use std::path::PathBuf;
-/// use transcribe_rs::{engines::whisper::WhisperEngine, TranscriptionEngine};
-///
-/// let mut engine = WhisperEngine::new();
-/// engine.load_model(&PathBuf::from("models/whisper-medium-q4_1.bin"))?;
-///
-/// let result = engine.transcribe_file(&PathBuf::from("audio.wav"), None)?;
-/// println!("Transcription: {}", result.text);
-/// # Ok::<(), Box<dyn std::error::Error>>(())
-/// ```
-///
-/// ## Using Parakeet Engine (requires `parakeet` feature)
-///
-/// ```ignore
-/// use std::path::PathBuf;
-/// use transcribe_rs::{
-///     engines::parakeet::{ParakeetEngine, ParakeetModelParams},
-///     TranscriptionEngine,
-/// };
-///
-/// let mut engine = ParakeetEngine::new();
-/// engine.load_model_with_params(
-///     &PathBuf::from("models/parakeet-v0.3"),
-///     ParakeetModelParams::int8(),
-/// )?;
-///
-/// let result = engine.transcribe_file(&PathBuf::from("audio.wav"), None)?;
-/// println!("Transcription: {}", result.text);
-/// # Ok::<(), Box<dyn std::error::Error>>(())
-/// ```
-pub trait TranscriptionEngine {
-    /// Parameters for configuring inference behavior (language, timestamps, etc.)
-    type InferenceParams;
-    /// Parameters for configuring model loading (quantization, etc.)
-    type ModelParams: Default;
-
-    /// Load a model from the specified path using default parameters.
-    ///
-    /// # Arguments
-    ///
-    /// * `model_path` - Path to the model file or directory
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(())` if the model loads successfully, or an error if loading fails.
-    fn load_model(&mut self, model_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
-        self.load_model_with_params(model_path, Self::ModelParams::default())
-    }
-
-    /// Load a model from the specified path with custom parameters.
-    ///
-    /// # Arguments
-    ///
-    /// * `model_path` - Path to the model file or directory
-    /// * `params` - Engine-specific model loading parameters
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(())` if the model loads successfully, or an error if loading fails.
-    fn load_model_with_params(
-        &mut self,
-        model_path: &Path,
-        params: Self::ModelParams,
-    ) -> Result<(), Box<dyn std::error::Error>>;
-
-    /// Unload the currently loaded model and free associated resources.
-    fn unload_model(&mut self);
-
-    /// Transcribe audio samples directly.
-    ///
-    /// # Arguments
-    ///
-    /// * `samples` - Audio samples as f32 values (16kHz, mono)
-    /// * `params` - Optional engine-specific inference parameters
-    ///
-    /// # Returns
-    ///
-    /// Returns transcription result with text and timing information.
-    fn transcribe_samples(
-        &mut self,
-        samples: Vec<f32>,
-        params: Option<Self::InferenceParams>,
-    ) -> Result<TranscriptionResult, Box<dyn std::error::Error>>;
-
-    /// Transcribe audio from a WAV file.
-    ///
-    /// The WAV file must meet the following requirements:
-    /// - 16 kHz sample rate
-    /// - 16-bit samples
-    /// - Mono (single channel)
-    /// - PCM format
-    ///
-    /// # Arguments
-    ///
-    /// * `wav_path` - Path to the WAV file to transcribe
-    /// * `params` - Optional engine-specific inference parameters
-    ///
-    /// # Returns
-    ///
-    /// Returns transcription result with text and timing information.
-    fn transcribe_file(
-        &mut self,
-        wav_path: &Path,
-        params: Option<Self::InferenceParams>,
-    ) -> Result<TranscriptionResult, Box<dyn std::error::Error>> {
-        let samples = audio::read_wav_samples(wav_path)?;
-        self.transcribe_samples(samples, params)
-    }
 }

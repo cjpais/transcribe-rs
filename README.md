@@ -1,433 +1,326 @@
 # transcribe-rs
 
-A Rust library for audio transcription supporting multiple engines including Whisper, Parakeet, Moonshine, SenseVoice, and GigaAM.
+Multi-engine speech-to-text library for Rust. Supports Parakeet, Moonshine, SenseVoice, GigaAM, Whisper, Whisperfile, and OpenAI.
 
-This library was extracted from the [Handy](https://github.com/cjpais/handy) project to help other developers integrate transcription capabilities into their applications. We hope to support additional ASR models in the future and may expand to include features like microphone input and real-time transcription.
+## Breaking Changes in 0.3.0
 
-## Features
+Version 0.3.0 changes the `SpeechModel` trait. If you need the old API, pin to `version = "=0.2.9"`.
 
-- **Multiple Transcription Engines**: Support for Whisper, Whisperfile, Parakeet, Moonshine, SenseVoice, and GigaAM models
-- **Cross-platform**: Works on macOS, Windows, and Linux with optimized backends
-- **Hardware Acceleration**: Metal on macOS, Vulkan on Windows/Linux
-- **Flexible API**: Common interface for different transcription engines
-- **Multi-language Support**: SenseVoice supports Chinese, English, Japanese, Korean, and Cantonese; Moonshine supports English, Arabic, Chinese, Japanese, Korean, Ukrainian, Vietnamese, and Spanish; GigaAM supports Russian with punctuation and Latin characters
-- **Opt-in Dependencies**: Only compile and link the engines you need via Cargo features
+- `transcribe()` and `transcribe_file()` now take `&TranscribeOptions` instead of `Option<&str>` for language
+- `SpeechModel` requires `Send`, enabling `Box<dyn SpeechModel + Send>` across threads
+- `TranscribeOptions` includes a `translate` field for Whisper/Whisperfile translation support
+- `WhisperEngine::capabilities()` now returns actual model language support (English-only vs multilingual) instead of always reporting 99 languages
+
+**Note:** 0.3.0 is a large migration. We believe correctness is preserved for all engines, but expect potential issues as this stabilizes. Please report any problems on [GitHub](https://github.com/cjpais/transcribe-rs/issues).
 
 ## Installation
 
-Add transcribe-rs to your `Cargo.toml` with the features you need:
-
 ```toml
 [dependencies]
-# Include only the engines you want to use
-transcribe-rs = { version = "0.1.5", features = ["parakeet", "moonshine"] }
-
-# Or enable all engines
-transcribe-rs = { version = "0.1.5", features = ["all"] }
+transcribe-rs = { version = "0.3", features = ["onnx"] }
 ```
 
-### Available Features
+No features are enabled by default. Pick the engines you need:
 
-| Feature | Description | Dependencies |
-|---------|-------------|--------------|
-| `whisper` | OpenAI Whisper (local, GGML format) | whisper-rs with Metal/Vulkan |
-| `parakeet` | NVIDIA Parakeet (ONNX) | ort, ndarray |
-| `moonshine` | UsefulSensors Moonshine (ONNX) | ort, ndarray, tokenizers |
-| `sense_voice` | FunASR SenseVoice (ONNX) | ort, ndarray, rustfft, base64 |
-| `gigaam` | SberDevices GigaAM v3 (ONNX) | ort, ndarray, rustfft |
-| `whisperfile` | Mozilla whisperfile server wrapper | reqwest |
-| `openai` | OpenAI API (remote) | async-openai, tokio |
-| `all` | All engines enabled | All of the above |
+| Feature | Engines |
+|---------|---------|
+| `onnx` | Parakeet, Moonshine, SenseVoice, GigaAM (via ONNX Runtime) |
+| `whisper-cpp` | Whisper (local, GGML via whisper.cpp with Metal/Vulkan) |
+| `whisperfile` | Whisperfile (local server wrapper) |
+| `openai` | OpenAI API (remote, async) |
+| `all` | Everything above |
 
-**Note**: By default, no features are enabled. You must explicitly choose which engines to include.
+## Quick Start
 
-## Parakeet Performance
+```rust
+use transcribe_rs::onnx::parakeet::{ParakeetModel, ParakeetParams, TimestampGranularity};
+use transcribe_rs::onnx::Quantization;
+use std::path::PathBuf;
 
-Using the int8 quantized Parakeet model, performance benchmarks:
+let mut model = ParakeetModel::load(
+    &PathBuf::from("models/parakeet-tdt-0.6b-v3-int8"),
+    &Quantization::Int8,
+)?;
 
-- **30x real time** on MBP M4 Max
-- **20x real time** on Zen 3 (5700X)
-- **5x real time** on Skylake (i5-6500)
-- **5x real time** on Jetson Nano CPU
-
-
-### Required Model Files
-
-**Parakeet Model Directory Structure:**
-```
-models/parakeet-v0.3/
-├── encoder-model.onnx           # Encoder model (FP32)
-├── encoder-model.int8.onnx      # Encoder model (For quantized)
-├── decoder_joint-model.onnx    # Decoder/joint model (FP32)
-├── decoder_joint-model.int8.onnx # Decoder/joint model (For quantized)
-├── nemo128.onnx                 # Audio preprocessor
-├── vocab.txt                    # Vocabulary file
+let samples = transcribe_rs::audio::read_wav_samples(&PathBuf::from("audio.wav"))?;
+let result = model.transcribe_with(
+    &samples,
+    &ParakeetParams {
+        timestamp_granularity: Some(TimestampGranularity::Segment),
+        ..Default::default()
+    },
+)?;
+println!("{}", result.text);
 ```
 
-**Whisper Model:**
-- Single GGML file (e.g., `whisper-medium-q4_1.bin`)
+All local engines implement the `SpeechModel` trait. Remote engines (OpenAI) implement `RemoteTranscriptionEngine` separately because they are async and file-based.
 
-**Whisperfile:**
-- Requires whisperfile binary and a Whisper GGML model
-- Whisperfile manages a local server that handles transcription requests
+## Usage by Engine
 
-**Moonshine Model Directory Structure:**
+### SenseVoice
+
+```rust
+use transcribe_rs::onnx::sense_voice::{SenseVoiceModel, SenseVoiceParams};
+use transcribe_rs::onnx::Quantization;
+use std::path::PathBuf;
+
+let mut model = SenseVoiceModel::load(
+    &PathBuf::from("models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"),
+    &Quantization::Int8,
+)?;
+
+let samples = transcribe_rs::audio::read_wav_samples(&PathBuf::from("audio.wav"))?;
+let result = model.transcribe_with(
+    &samples,
+    &SenseVoiceParams {
+        language: Some("en".to_string()),
+        ..Default::default()
+    },
+)?;
 ```
-models/moonshine-tiny/
-├── encoder_model.onnx          # Audio encoder
-├── decoder_model_merged.onnx   # Decoder with KV cache support
-└── tokenizer.json              # BPE tokenizer vocabulary
+
+### Moonshine
+
+```rust
+use transcribe_rs::onnx::moonshine::{MoonshineModel, MoonshineVariant};
+use transcribe_rs::onnx::Quantization;
+use transcribe_rs::SpeechModel;
+use std::path::PathBuf;
+
+let mut model = MoonshineModel::load(
+    &PathBuf::from("models/moonshine-base"),
+    MoonshineVariant::Base,
+    &Quantization::default(),
+)?;
+let result = model.transcribe_file(&PathBuf::from("audio.wav"), &transcribe_rs::TranscribeOptions::default())?;
 ```
 
-**Moonshine Model Variants:**
-| Variant | Language | Model Folder |
-|---------|----------|--------------|
-| Tiny | English | moonshine-tiny |
-| TinyAr | Arabic | moonshine-tiny-ar |
-| TinyZh | Chinese | moonshine-tiny-zh |
-| TinyJa | Japanese | moonshine-tiny-ja |
-| TinyKo | Korean | moonshine-tiny-ko |
-| TinyUk | Ukrainian | moonshine-tiny-uk |
-| TinyVi | Vietnamese | moonshine-tiny-vi |
-| Base | English | moonshine-base |
-| BaseEs | Spanish | moonshine-base-es |
+Streaming variant:
 
-**SenseVoice Model Directory Structure:**
+```rust
+use transcribe_rs::onnx::moonshine::StreamingModel;
+use transcribe_rs::onnx::Quantization;
+use transcribe_rs::SpeechModel;
+use std::path::PathBuf;
+
+let mut model = StreamingModel::load(
+    &PathBuf::from("models/moonshine-streaming/moonshine-tiny-streaming-en"),
+    4,  // threads
+    &Quantization::default(),
+)?;
+let result = model.transcribe_file(&PathBuf::from("audio.wav"), &transcribe_rs::TranscribeOptions::default())?;
+```
+
+### GigaAM
+
+```rust
+use transcribe_rs::onnx::gigaam::GigaAMModel;
+use transcribe_rs::onnx::Quantization;
+use transcribe_rs::SpeechModel;
+use std::path::PathBuf;
+
+let mut model = GigaAMModel::load(
+    &PathBuf::from("models/giga-am-v3"),
+    &Quantization::default(),
+)?;
+let result = model.transcribe_file(&PathBuf::from("audio.wav"), &transcribe_rs::TranscribeOptions::default())?;
+```
+
+### Whisper (whisper.cpp)
+
+```rust
+use transcribe_rs::whisper_cpp::{WhisperEngine, WhisperInferenceParams};
+use std::path::PathBuf;
+
+let mut engine = WhisperEngine::load(&PathBuf::from("models/whisper-medium-q4_1.bin"))?;
+
+let samples = transcribe_rs::audio::read_wav_samples(&PathBuf::from("audio.wav"))?;
+let result = engine.transcribe_with(
+    &samples,
+    &WhisperInferenceParams {
+        initial_prompt: Some("Context prompt here.".to_string()),
+        ..Default::default()
+    },
+)?;
+```
+
+### Whisperfile
+
+```rust
+use transcribe_rs::whisperfile::{
+    WhisperfileEngine, WhisperfileInferenceParams, WhisperfileLoadParams,
+};
+use std::path::PathBuf;
+
+let mut engine = WhisperfileEngine::load_with_params(
+    &PathBuf::from("models/whisperfile-0.9.3"),
+    &PathBuf::from("models/ggml-small.bin"),
+    WhisperfileLoadParams {
+        port: 8080,
+        startup_timeout_secs: 60,
+        ..Default::default()
+    },
+)?;
+
+let samples = transcribe_rs::audio::read_wav_samples(&PathBuf::from("audio.wav"))?;
+let result = engine.transcribe_with(
+    &samples,
+    &WhisperfileInferenceParams {
+        language: Some("en".to_string()),
+        ..Default::default()
+    },
+)?;
+// Server shuts down automatically when engine is dropped.
+```
+
+### OpenAI (Remote)
+
+```rust
+use transcribe_rs::remote::openai::{self, OpenAIModel, OpenAIRequestParams};
+use transcribe_rs::{remote, RemoteTranscriptionEngine};
+use std::path::PathBuf;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let engine = openai::default_engine();
+    let result = engine
+        .transcribe_file(
+            &PathBuf::from("audio.wav"),
+            OpenAIRequestParams::builder()
+                .model(OpenAIModel::Gpt4oMiniTranscribe)
+                .timestamp_granularity(remote::openai::OpenAITimestampGranularity::Segment)
+                .build()?,
+        )
+        .await?;
+    println!("{}", result.text);
+    Ok(())
+}
+```
+
+## Models
+
+All audio input must be **16 kHz, mono, 16-bit PCM WAV**.
+
+### Model Downloads
+
+| Engine | Download |
+|--------|----------|
+| Parakeet (int8) | [blob.handy.computer](https://blob.handy.computer/parakeet-v3-int8.tar.gz) / [HuggingFace](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/tree/main) |
+| SenseVoice (int8) | [blob.handy.computer](https://blob.handy.computer/sense-voice-int8.tar.gz) / [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models) |
+| Moonshine | [HuggingFace](https://huggingface.co/UsefulSensors/moonshine/tree/main/onnx/merged) |
+| GigaAM | [HuggingFace](https://huggingface.co/istupakov/gigaam-v3-onnx/tree/main) |
+| Whisper (GGML) | [HuggingFace](https://huggingface.co/ggerganov/whisper.cpp/tree/main) |
+| Whisperfile binary | [GitHub](https://github.com/mozilla-ai/llamafile/releases/download/0.9.3/whisperfile-0.9.3) |
+
+### Directory Layouts
+
+**Parakeet** (directory):
+```
+models/parakeet-tdt-0.6b-v3-int8/
+├── encoder-model.int8.onnx
+├── decoder_joint-model.int8.onnx
+├── nemo128.onnx
+└── vocab.txt
+```
+
+**SenseVoice** (directory):
 ```
 models/sense-voice/
-├── model.onnx              # Full precision model (FP32)
-├── model.int8.onnx         # Quantized model (Int8)
-└── tokens.txt              # Token vocabulary
+├── model.int8.onnx
+└── tokens.txt
 ```
 
-SenseVoice models are available from [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models). Each download includes the ONNX model and tokens file. Models with `int8` in the name contain `model.int8.onnx`; the non-int8 version contains `model.onnx`.
-
-**GigaAM Model:**
-- Single ONNX file (e.g., `v3_e2e_ctc.int8.onnx`)
-- BPE vocabulary is embedded in the engine, no external tokens file needed
-
-**Audio Requirements:**
-- Format: WAV
-- Sample Rate: 16 kHz
-- Channels: Mono (1 channel)
-- Bit Depth: 16-bit
-- Encoding: PCM
-
-## Model Downloads
-
-- **Parakeet**:
-  - Pre-packaged int8 quantized model: https://blob.handy.computer/parakeet-v3-int8.tar.gz
-  - Original model files: https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/tree/main
-- **Whisper**: https://huggingface.co/ggerganov/whisper.cpp/tree/main
-- **Whisperfile Binary**: https://github.com/mozilla-ai/llamafile/releases/download/0.9.3/whisperfile-0.9.3
-- **Moonshine**: https://huggingface.co/UsefulSensors/moonshine/tree/main/onnx/merged
-- **SenseVoice**:
-  - Pre-packaged int8 quantized model: https://blob.handy.computer/sense-voice-int8.tar.gz
-  - Additional models: https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models
-- **GigaAM**: https://huggingface.co/istupakov/gigaam-v3-onnx/tree/main
-
-## Usage
-
-### Parakeet Engine
-```rust
-use transcribe_rs::{TranscriptionEngine, engines::parakeet::ParakeetEngine};
-use std::path::PathBuf;
-
-let mut engine = ParakeetEngine::new();
-engine.load_model(&PathBuf::from("path/to/model"))?;
-let result = engine.transcribe_file(&PathBuf::from("audio.wav"), None)?;
-println!("{}", result.text);
+**Moonshine** (directory):
+```
+models/moonshine-base/
+├── encoder_model.onnx
+├── decoder_model_merged.onnx
+└── tokenizer.json
 ```
 
-### Moonshine Engine
-```rust
-use transcribe_rs::{TranscriptionEngine, engines::moonshine::{MoonshineEngine, MoonshineModelParams, ModelVariant}};
-use std::path::PathBuf;
-
-let mut engine = MoonshineEngine::new();
-engine.load_model_with_params(
-    &PathBuf::from("path/to/model"),
-    MoonshineModelParams::variant(ModelVariant::Tiny),
-)?;
-let result = engine.transcribe_file(&PathBuf::from("audio.wav"), None)?;
-println!("{}", result.text);
+**Moonshine Streaming** (directory):
+```
+models/moonshine-streaming/moonshine-tiny-streaming-en/
+├── encoder.onnx
+├── decoder.onnx
+├── streaming_config.json
+└── tokenizer.json
 ```
 
-### SenseVoice Engine
-```rust
-use transcribe_rs::{TranscriptionEngine, engines::sense_voice::{SenseVoiceEngine, SenseVoiceModelParams}};
-use std::path::PathBuf;
-
-let mut engine = SenseVoiceEngine::new();
-// Use SenseVoiceModelParams::fp32() for full precision
-engine.load_model_with_params(
-    &PathBuf::from("path/to/model"),
-    SenseVoiceModelParams::int8(),
-)?;
-let result = engine.transcribe_file(&PathBuf::from("audio.wav"), None)?;
-println!("{}", result.text);
+**GigaAM** (directory):
+```
+models/giga-am-v3/
+├── model.onnx          (or model.int8.onnx)
+└── vocab.txt
 ```
 
-### GigaAM Engine
-```rust
-use transcribe_rs::{TranscriptionEngine, engines::gigaam::GigaAMEngine};
-use std::path::PathBuf;
+**Whisper**: single file (e.g. `whisper-medium-q4_1.bin`).
 
-let mut engine = GigaAMEngine::new();
-engine.load_model(&PathBuf::from("models/v3_e2e_ctc.int8.onnx"))?;
-let result = engine.transcribe_file(&PathBuf::from("audio.wav"), None)?;
-println!("{}", result.text);
-```
+### Moonshine Variants
 
-### Whisperfile Engine
-```rust
-use transcribe_rs::{TranscriptionEngine, engines::whisperfile::{WhisperfileEngine, WhisperfileModelParams}};
-use std::path::PathBuf;
+| Variant | Language |
+|---------|----------|
+| Tiny | English |
+| TinyAr | Arabic |
+| TinyZh | Chinese |
+| TinyJa | Japanese |
+| TinyKo | Korean |
+| TinyUk | Ukrainian |
+| TinyVi | Vietnamese |
+| Base | English |
+| BaseEs | Spanish |
 
-let mut engine = WhisperfileEngine::new(PathBuf::from("whisperfile-0.9.3"));
-engine.load_model_with_params(
-    &PathBuf::from("models/ggml-small.bin"),
-    WhisperfileModelParams::default(),
-)?;
-let result = engine.transcribe_file(&PathBuf::from("audio.wav"), None)?;
-println!("{}", result.text);
-```
+## Examples and Tests
 
-## Running the Examples
-
-### Setup
-
-1. **Create the models directory:**
-   ```bash
-   mkdir models
-   ```
-
-2. **Download models for the engine you want to use:**
-
-   **For Parakeet:**
-   ```bash
-   cd models
-   wget https://blob.handy.computer/parakeet-v3-int8.tar.gz
-   tar -xzf parakeet-v3-int8.tar.gz
-   rm parakeet-v3-int8.tar.gz
-   cd ..
-   ```
-
-   **For Whisper:**
-   ```bash
-   cd models
-   wget https://blob.handy.computer/whisper-medium-q4_1.bin
-   cd ..
-   ```
-
-   **For Whisperfile:**
-
-   First, download the whisperfile binary:
-   ```bash
-   wget https://github.com/mozilla-ai/llamafile/releases/download/0.9.3/whisperfile-0.9.3
-   chmod +x whisperfile-0.9.3
-   ```
-
-   Then download a Whisper GGML model:
-   ```bash
-   cd models
-   wget https://blob.handy.computer/ggml-small.bin
-   cd ..
-   ```
-
-   **For Moonshine:**
-
-   Download the required model files from [Huggingface](https://huggingface.co/UsefulSensors/moonshine/tree/main/onnx/merged).
-
-   For the Tiny English model:
-   ```bash
-   mkdir -p models/moonshine-tiny
-   cd models/moonshine-tiny
-   wget https://huggingface.co/UsefulSensors/moonshine/resolve/main/onnx/merged/tiny/encoder_model.onnx
-   wget https://huggingface.co/UsefulSensors/moonshine/resolve/main/onnx/merged/tiny/decoder_model_merged.onnx
-   wget https://huggingface.co/UsefulSensors/moonshine/resolve/main/onnx/merged/tiny/tokenizer.json
-   cd ../..
-   ```
-
-   For other variants (TinyAr, TinyZh, Base, etc.), replace `tiny` in the URLs with the appropriate variant folder name (e.g., `tiny-ar`, `tiny-zh`, `base`, `base-es`).
-
-   **For SenseVoice:**
-   ```bash
-   cd models
-   wget https://blob.handy.computer/sense-voice-int8.tar.gz
-   tar -xzf sense-voice-int8.tar.gz
-   rm sense-voice-int8.tar.gz
-   cd ..
-   ```
-
-   **For GigaAM:**
-   ```bash
-   cd models
-   wget https://huggingface.co/istupakov/gigaam-v3-onnx/resolve/main/v3_e2e_ctc.int8.onnx
-   cd ..
-   ```
-
-### Running the Examples
-
-Each engine has its own example file. You must specify the required feature when running:
+Each engine has an example in `examples/`. Run with the appropriate feature flag:
 
 ```bash
-# Run Parakeet example (recommended for performance)
-cargo run --example parakeet --features parakeet
-
-# Run Whisper example
-cargo run --example whisper --features whisper
-
-# Run Whisperfile example
+cargo run --example parakeet --features onnx
+cargo run --example sense_voice --features onnx
+cargo run --example moonshine --features onnx
+cargo run --example moonshine_streaming --features onnx
+cargo run --example gigaam --features onnx
+cargo run --example whisper --features whisper-cpp
 cargo run --example whisperfile --features whisperfile
-
-# Run Moonshine example
-cargo run --example moonshine --features moonshine
-
-# Run SenseVoice example (add --int8 for quantized model)
-cargo run --example sense_voice --features sense_voice -- --int8 models/sense-voice-int8 samples/audio.wav
-
-# Run GigaAM example
-cargo run --example gigaam --features gigaam
-
-# Run OpenAI API example
 cargo run --example openai --features openai
 ```
 
-Each example will:
-- Load the specified model
-- Transcribe a sample audio file
-- Display timing information and transcription results
-- Show real-time speedup factor
-
-## Running Tests
-
-### Running Individual Engine Tests
-
-Tests are feature-gated and require you to specify which engine to test:
+Tests are also feature-gated. Models must be present locally; tests skip gracefully if not found.
 
 ```bash
-# Test a specific engine
-cargo test --features parakeet
-cargo test --features whisper
-cargo test --features moonshine
-cargo test --features sense_voice
-cargo test --features gigaam
+cargo test --features onnx
+cargo test --features whisper-cpp
 cargo test --features whisperfile
-cargo test --features openai
-
-# Test multiple engines
-cargo test --features "parakeet,moonshine"
-
-# Test all engines
 cargo test --all-features
 ```
 
-### Local Development Shortcuts
+Whisperfile tests look for the binary at `models/whisperfile-0.9.3` (override with `WHISPERFILE_BIN`) and model at `models/ggml-small.bin` (override with `WHISPERFILE_MODEL`). GigaAM tests require `samples/russian.wav`.
 
-The `.cargo/config.toml` file provides convenient aliases for local development:
-
-```bash
-# Run all tests with all features enabled
-cargo test-all
-
-# Check compilation with all features
-cargo check-all
-
-# Build with all features
-cargo build-all
-```
-
-### Test Environment Setup
-
-**For Whisperfile tests:**
-
-The whisperfile tests require:
-1. The whisperfile binary at `models/whisperfile-0.9.3` (or set `WHISPERFILE_BIN` env var)
-2. A Whisper GGML model at `models/ggml-small.bin` (or set `WHISPERFILE_MODEL` env var)
+Development aliases from `.cargo/config.toml`:
 
 ```bash
-# Download whisperfile binary
-wget https://github.com/mozilla-ai/llamafile/releases/download/0.9.3/whisperfile-0.9.3
-mv whisperfile-0.9.3 models/
-chmod +x models/whisperfile-0.9.3
-
-# Download a model
-cd models
-wget https://blob.handy.computer/ggml-small.bin
-cd ..
-
-# Run tests
-cargo test --features whisperfile
+cargo check-all    # cargo check --all-features
+cargo build-all    # cargo build --all-features
+cargo test-all     # cargo test --all-features
 ```
 
-**For Moonshine tests:**
+## Performance
 
-Download the Moonshine base model:
-```bash
-mkdir -p models/moonshine-base
-cd models/moonshine-base
-wget https://huggingface.co/onnx-community/moonshine-base-ONNX/resolve/main/onnx/encoder_model.onnx
-wget https://huggingface.co/onnx-community/moonshine-base-ONNX/resolve/main/onnx/decoder_model_merged.onnx
-wget https://huggingface.co/onnx-community/moonshine-base-ONNX/resolve/main/tokenizer.json
-cd ../..
+Parakeet int8 benchmarks:
 
-# Run tests
-cargo test --features moonshine
-```
-
-**For Parakeet tests:**
-
-Download the int8 quantized Parakeet model:
-```bash
-cd models
-wget https://blob.handy.computer/parakeet-v3-int8.tar.gz
-tar -xzf parakeet-v3-int8.tar.gz
-rm parakeet-v3-int8.tar.gz
-cd ..
-
-# Run tests
-cargo test --features parakeet
-```
-
-**For SenseVoice tests:**
-
-Download the SenseVoice int8 model:
-```bash
-cd models
-wget https://blob.handy.computer/sense-voice-int8.tar.gz
-tar -xzf sense-voice-int8.tar.gz
-rm sense-voice-int8.tar.gz
-cd ..
-
-# Run tests
-cargo test --features sense_voice
-```
-
-**For GigaAM tests:**
-
-Download the GigaAM v3 int8 model:
-```bash
-cd models
-wget https://huggingface.co/istupakov/gigaam-v3-onnx/resolve/main/v3_e2e_ctc.int8.onnx
-cd ..
-
-# Run tests
-cargo test --features gigaam
-```
-
-GigaAM tests require a Russian audio sample at `samples/russian.wav`. Tests will skip if model or audio files are not found.
-
-**For Whisper tests:**
-
-Whisper tests will skip if models are not available in the expected locations.
+| Platform | Speed |
+|----------|-------|
+| MBP M4 Max | ~30x real-time |
+| Zen 3 (5700X) | ~20x real-time |
+| Skylake (i5-6500) | ~5x real-time |
+| Jetson Nano CPU | ~5x real-time |
 
 ## Acknowledgments
 
-- Big thanks to [istupakov](https://github.com/istupakov/onnx-asr) for the excellent ONNX implementation of Parakeet
-- Thanks to NVIDIA for releasing the Parakeet model
-- Thanks to the [whisper.cpp](https://github.com/ggerganov/whisper.cpp) project for the Whisper implementation
-- Big thanks to [jart](http://github.com/jart) for [llamafile](https://github.com/mozilla-ai/llamafile). Thanks to [Mozilla AI](https://github.com/mozilla-ai) for maintaining the [Whisperfile](https://github.com/cjpais/whisperfile) implementation
-- Thanks to [UsefulSensors](https://github.com/usefulsensors) for the Moonshine models and ONNX exports
-- Thanks to [FunASR](https://github.com/modelscope/FunASR) for the SenseVoice model and [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) for the ONNX exports
-- Thanks to [SberDevices](https://github.com/salute-developers/GigaAM) for the GigaAM model and [istupakov](https://github.com/istupakov/onnx-asr) for the ONNX exports
+- [istupakov](https://github.com/istupakov/onnx-asr) for the ONNX Parakeet and GigaAM exports
+- [NVIDIA](https://github.com/NVIDIA/NeMo) for Parakeet
+- [whisper.cpp](https://github.com/ggerganov/whisper.cpp)
+- [jart](http://github.com/jart) / [Mozilla AI](https://github.com/mozilla-ai) for [llamafile](https://github.com/mozilla-ai/llamafile) and Whisperfile
+- [UsefulSensors](https://github.com/usefulsensors) for Moonshine
+- [FunASR](https://github.com/modelscope/FunASR) / [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) for SenseVoice
+- [SberDevices](https://github.com/salute-developers/GigaAM) for GigaAM
