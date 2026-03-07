@@ -69,7 +69,7 @@ fn test_jfk_transcription() {
     let audio_path = PathBuf::from("samples/jfk.wav");
 
     let result = engine
-        .transcribe_file(&audio_path, None)
+        .transcribe_file(&audio_path, &transcribe_rs::TranscribeOptions::default())
         .expect("Failed to transcribe");
 
     let text_normalized: String = result
@@ -116,7 +116,7 @@ fn test_timestamps() {
     let audio_path = PathBuf::from("samples/jfk.wav");
 
     let result = engine
-        .transcribe_file(&audio_path, None)
+        .transcribe_file(&audio_path, &transcribe_rs::TranscribeOptions::default())
         .expect("Failed to transcribe");
 
     assert!(
@@ -187,7 +187,7 @@ fn test_transcribe_samples() {
         transcribe_rs::audio::read_wav_samples(&audio_path).expect("Failed to read audio samples");
 
     let result = engine
-        .transcribe(&samples, None)
+        .transcribe(&samples, &transcribe_rs::TranscribeOptions::default())
         .expect("Failed to transcribe samples");
 
     assert!(!result.text.is_empty(), "Transcription should not be empty");
@@ -220,7 +220,7 @@ fn test_language_parameter() {
     let audio_path = PathBuf::from("samples/jfk.wav");
 
     let result = engine
-        .transcribe_file(&audio_path, Some("en"))
+        .transcribe_file(&audio_path, &transcribe_rs::TranscribeOptions { language: Some("en".to_string()), ..Default::default() })
         .expect("Failed to transcribe with language parameter");
 
     assert!(!result.text.is_empty(), "Transcription should not be empty");

@@ -60,7 +60,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Transcribing file: {:?}", wav_path);
     let transcribe_start = Instant::now();
-    let result = model.transcribe_file(&wav_path, None)?;
+    let result = model.transcribe_file(&wav_path, &transcribe_rs::TranscribeOptions::default())?;
     let transcribe_duration = transcribe_start.elapsed();
 
     println!("Transcription completed in {:.2?}", transcribe_duration);

@@ -10,7 +10,7 @@ use crate::features::{apply_cmvn, apply_lfr, compute_mel, MelConfig, WindowType}
 use crate::TranscribeError;
 use super::session;
 use super::Quantization;
-use crate::{ModelCapabilities, SpeechModel, TranscriptionResult, TranscriptionSegment};
+use crate::{ModelCapabilities, SpeechModel, TranscribeOptions, TranscriptionResult, TranscriptionSegment};
 
 const CAPABILITIES: ModelCapabilities = ModelCapabilities {
     name: "SenseVoice",
@@ -412,8 +412,8 @@ impl SpeechModel for SenseVoiceModel {
     fn transcribe(
         &mut self,
         samples: &[f32],
-        language: Option<&str>,
+        options: &TranscribeOptions,
     ) -> Result<TranscriptionResult, TranscribeError> {
-        self.infer(samples, language.unwrap_or("auto"), true)
+        self.infer(samples, options.language.as_deref().unwrap_or("auto"), true)
     }
 }

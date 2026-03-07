@@ -20,7 +20,7 @@ fn test_moonshine_base_jfk() {
             .expect("Failed to load model");
 
     let result = model
-        .transcribe_file(&audio_path, None)
+        .transcribe_file(&audio_path, &transcribe_rs::TranscribeOptions::default())
         .expect("Failed to transcribe");
 
     println!("Transcription: {}", result.text);

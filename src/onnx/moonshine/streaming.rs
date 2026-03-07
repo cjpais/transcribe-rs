@@ -9,7 +9,7 @@ use std::path::Path;
 
 use crate::onnx::session;
 use crate::onnx::Quantization;
-use crate::{ModelCapabilities, SpeechModel, TranscribeError, TranscriptionResult};
+use crate::{ModelCapabilities, SpeechModel, TranscribeError, TranscribeOptions, TranscriptionResult};
 
 use super::SAMPLE_RATE;
 
@@ -787,7 +787,7 @@ impl SpeechModel for StreamingModel {
     fn transcribe(
         &mut self,
         samples: &[f32],
-        _language: Option<&str>,
+        _options: &TranscribeOptions,
     ) -> Result<TranscriptionResult, TranscribeError> {
         let tokens = self.generate(samples, 6.5, None)?;
         let text = self.tokenizer.decode(&tokens)?;

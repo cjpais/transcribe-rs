@@ -9,7 +9,7 @@ use crate::features::{compute_mel, MelConfig, WindowType};
 use crate::TranscribeError;
 use super::session;
 use super::Quantization;
-use crate::{ModelCapabilities, SpeechModel, TranscriptionResult};
+use crate::{ModelCapabilities, SpeechModel, TranscribeOptions, TranscriptionResult};
 
 const CAPABILITIES: ModelCapabilities = ModelCapabilities {
     name: "GigaAM",
@@ -168,7 +168,7 @@ impl SpeechModel for GigaAMModel {
     fn transcribe(
         &mut self,
         samples: &[f32],
-        _language: Option<&str>,
+        _options: &TranscribeOptions,
     ) -> Result<TranscriptionResult, TranscribeError> {
         self.infer(samples)
     }

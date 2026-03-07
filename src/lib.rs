@@ -43,7 +43,7 @@
 //!     &Quantization::Int8,
 //! )?;
 //!
-//! let result = model.transcribe(&samples, Some("en"))?;
+//! let result = model.transcribe(&samples, &transcribe_rs::TranscribeOptions::default())?;
 //! println!("Transcription: {}", result.text);
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
@@ -98,33 +98,40 @@ pub struct ModelCapabilities {
     pub supports_streaming: bool,
 }
 
+/// Options for transcription.
+#[derive(Debug, Clone, Default)]
+pub struct TranscribeOptions {
+    /// Language hint (BCP-47 code, e.g. "en", "zh").
+    /// Multilingual models use this as a hint; single-language models ignore it.
+    pub language: Option<String>,
+    /// Whether to translate the output to English (only supported by some engines).
+    pub translate: bool,
+}
+
 /// Unified interface for speech-to-text models.
 ///
 /// Each model implements this trait to provide a common transcription API.
 /// Model-specific parameters are exposed via a separate `transcribe_with()` method
 /// on the concrete type.
-pub trait SpeechModel {
+pub trait SpeechModel: Send {
     /// Report this model's capabilities.
     fn capabilities(&self) -> ModelCapabilities;
 
     /// Transcribe audio samples (16 kHz, mono, f32 in [-1, 1]).
-    ///
-    /// The `language` parameter is advisory — multilingual models use it as a
-    /// hint, while single-language models (e.g. Parakeet, GigaAM) ignore it.
     fn transcribe(
         &mut self,
         samples: &[f32],
-        language: Option<&str>,
+        options: &TranscribeOptions,
     ) -> Result<TranscriptionResult, TranscribeError>;
 
     /// Transcribe a WAV file (16 kHz, 16-bit, mono).
     fn transcribe_file(
         &mut self,
         wav_path: &Path,
-        language: Option<&str>,
+        options: &TranscribeOptions,
     ) -> Result<TranscriptionResult, TranscribeError> {
         let samples = audio::read_wav_samples(wav_path)?;
-        self.transcribe(&samples, language)
+        self.transcribe(&samples, options)
     }
 }
 

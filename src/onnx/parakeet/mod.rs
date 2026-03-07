@@ -9,7 +9,7 @@ use std::path::Path;
 use crate::decode::tokens::load_vocab;
 use super::session;
 use super::Quantization;
-use crate::{ModelCapabilities, SpeechModel, TranscribeError, TranscriptionResult, TranscriptionSegment};
+use crate::{ModelCapabilities, SpeechModel, TranscribeError, TranscribeOptions, TranscriptionResult, TranscriptionSegment};
 
 /// Timestamp granularity for Parakeet output.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -427,7 +427,7 @@ impl SpeechModel for ParakeetModel {
     fn transcribe(
         &mut self,
         samples: &[f32],
-        _language: Option<&str>,
+        _options: &TranscribeOptions,
     ) -> Result<TranscriptionResult, TranscribeError> {
         self.infer(samples, &TimestampGranularity::default())
     }

@@ -49,7 +49,7 @@ fn test_jfk_transcription() {
     let audio_path = PathBuf::from("samples/jfk.wav");
 
     let result = engine
-        .transcribe_file(&audio_path, None)
+        .transcribe_file(&audio_path, &transcribe_rs::TranscribeOptions::default())
         .expect("Failed to transcribe");
 
     let expected = "And so my fellow Americans, ask not what your country can do for you, ask what you can do for your country.";
@@ -80,7 +80,7 @@ fn test_prompt_product_names() {
     }
 
     let baseline_result = engine
-        .transcribe_file(&audio_path, None)
+        .transcribe_file(&audio_path, &transcribe_rs::TranscribeOptions::default())
         .expect("Failed to transcribe without prompt");
 
     println!("\n=== Baseline Transcription (no prompt) ===");
@@ -132,7 +132,7 @@ fn test_timestamps() {
     let audio_path = PathBuf::from("samples/jfk.wav");
 
     let result = engine
-        .transcribe_file(&audio_path, None)
+        .transcribe_file(&audio_path, &transcribe_rs::TranscribeOptions::default())
         .expect("Failed to transcribe");
 
     assert!(

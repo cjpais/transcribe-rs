@@ -21,7 +21,7 @@ fn test_gigaam_transcribe() {
         GigaAMModel::load(&model_dir, &Quantization::Int8).expect("Failed to load model");
 
     let result = model
-        .transcribe_file(&wav_path, None)
+        .transcribe_file(&wav_path, &transcribe_rs::TranscribeOptions::default())
         .expect("Failed to transcribe");
 
     let expected = "Проверка связи.";

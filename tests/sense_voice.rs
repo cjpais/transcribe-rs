@@ -21,7 +21,7 @@ fn test_sense_voice_transcribe() {
         SenseVoiceModel::load(&model_path, &Quantization::FP32).expect("Failed to load model");
 
     let result = model
-        .transcribe_file(&wav_path, None)
+        .transcribe_file(&wav_path, &transcribe_rs::TranscribeOptions::default())
         .expect("Failed to transcribe");
 
     assert!(!result.text.is_empty(), "Transcription should not be empty");

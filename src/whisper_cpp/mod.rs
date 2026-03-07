@@ -21,24 +21,17 @@
 //!
 //! let mut engine = WhisperEngine::load(&PathBuf::from("models/whisper-medium-q4_1.bin"))?;
 //!
-//! let result = engine.transcribe(&[], Some("en"))?;
+//! let result = engine.transcribe(&[], &transcribe_rs::TranscribeOptions::default())?;
 //! println!("Transcription: {}", result.text);
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
-use crate::{ModelCapabilities, SpeechModel, TranscribeError, TranscriptionResult, TranscriptionSegment};
+use crate::{ModelCapabilities, SpeechModel, TranscribeError, TranscribeOptions, TranscriptionResult, TranscriptionSegment};
 use std::path::Path;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
-const CAPABILITIES: ModelCapabilities = ModelCapabilities {
-    name: "Whisper",
-    engine_id: "whisper_cpp",
-    sample_rate: 16000,
-    languages: &["en", "zh", "de", "es", "ru", "ko", "fr", "ja", "pt", "tr", "pl", "ca", "nl", "ar", "sv", "it", "id", "hi", "fi", "vi", "he", "uk", "el", "ms", "cs", "ro", "da", "hu", "ta", "no", "th", "ur", "hr", "bg", "lt", "la", "mi", "ml", "cy", "sk", "te", "fa", "lv", "bn", "sr", "az", "sl", "kn", "et", "mk", "br", "eu", "is", "hy", "ne", "mn", "bs", "kk", "sq", "sw", "gl", "mr", "pa", "si", "km", "sn", "yo", "so", "af", "oc", "ka", "be", "tg", "sd", "gu", "am", "yi", "lo", "uz", "fo", "ht", "ps", "tk", "nn", "mt", "sa", "lb", "my", "bo", "tl", "mg", "as", "tt", "haw", "ln", "ha", "ba", "jw", "su", "yue"],
-    supports_timestamps: true,
-    supports_translation: true,
-    supports_streaming: false,
-};
+const MULTILINGUAL_LANGUAGES: &[&str] = &["en", "zh", "de", "es", "ru", "ko", "fr", "ja", "pt", "tr", "pl", "ca", "nl", "ar", "sv", "it", "id", "hi", "fi", "vi", "he", "uk", "el", "ms", "cs", "ro", "da", "hu", "ta", "no", "th", "ur", "hr", "bg", "lt", "la", "mi", "ml", "cy", "sk", "te", "fa", "lv", "bn", "sr", "az", "sl", "kn", "et", "mk", "br", "eu", "is", "hy", "ne", "mn", "bs", "kk", "sq", "sw", "gl", "mr", "pa", "si", "km", "sn", "yo", "so", "af", "oc", "ka", "be", "tg", "sd", "gu", "am", "yi", "lo", "uz", "fo", "ht", "ps", "tk", "nn", "mt", "sa", "lb", "my", "bo", "tl", "mg", "as", "tt", "haw", "ln", "ha", "ba", "jw", "su", "yue"];
+const ENGLISH_ONLY_LANGUAGES: &[&str] = &["en"];
 
 /// Parameters for configuring Whisper model loading.
 #[derive(Debug, Clone)]
@@ -107,8 +100,9 @@ impl Default for WhisperInferenceParams {
 /// Whisper speech recognition engine.
 pub struct WhisperEngine {
     state: whisper_rs::WhisperState,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // context must stay alive — it owns the C memory backing `state`
     context: whisper_rs::WhisperContext,
+    is_multilingual: bool,
 }
 
 impl WhisperEngine {
@@ -134,11 +128,13 @@ impl WhisperEngine {
         )
         .map_err(|e| TranscribeError::Inference(e.to_string()))?;
 
+        let is_multilingual = context.is_multilingual();
+
         let state = context
             .create_state()
             .map_err(|e| TranscribeError::Inference(e.to_string()))?;
 
-        Ok(Self { state, context })
+        Ok(Self { state, context, is_multilingual })
     }
 
     /// Transcribe with model-specific parameters.
@@ -214,16 +210,25 @@ impl WhisperEngine {
 
 impl SpeechModel for WhisperEngine {
     fn capabilities(&self) -> ModelCapabilities {
-        CAPABILITIES
+        ModelCapabilities {
+            name: "Whisper",
+            engine_id: "whisper_cpp",
+            sample_rate: 16000,
+            languages: if self.is_multilingual { MULTILINGUAL_LANGUAGES } else { ENGLISH_ONLY_LANGUAGES },
+            supports_timestamps: true,
+            supports_translation: self.is_multilingual,
+            supports_streaming: false,
+        }
     }
 
     fn transcribe(
         &mut self,
         samples: &[f32],
-        language: Option<&str>,
+        options: &TranscribeOptions,
     ) -> Result<TranscriptionResult, TranscribeError> {
         let params = WhisperInferenceParams {
-            language: language.map(|s| s.to_string()),
+            language: options.language.clone(),
+            translate: options.translate,
             ..Default::default()
         };
         self.infer(samples, &params)

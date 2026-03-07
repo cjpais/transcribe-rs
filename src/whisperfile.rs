@@ -4,7 +4,7 @@
 //! for speech-to-text conversion. The engine manages the whisperfile server
 //! lifecycle automatically.
 
-use crate::{ModelCapabilities, SpeechModel, TranscribeError, TranscriptionResult, TranscriptionSegment};
+use crate::{ModelCapabilities, SpeechModel, TranscribeError, TranscribeOptions, TranscriptionResult, TranscriptionSegment};
 
 const CAPABILITIES: ModelCapabilities = ModelCapabilities {
     name: "Whisperfile",
@@ -478,10 +478,11 @@ impl SpeechModel for WhisperfileEngine {
     fn transcribe(
         &mut self,
         samples: &[f32],
-        language: Option<&str>,
+        options: &TranscribeOptions,
     ) -> Result<TranscriptionResult, TranscribeError> {
         let params = WhisperfileInferenceParams {
-            language: language.map(|s| s.to_string()),
+            language: options.language.clone(),
+            translate: options.translate,
             ..Default::default()
         };
         self.transcribe_samples_inner(samples, Some(params))

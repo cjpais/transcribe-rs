@@ -9,7 +9,7 @@ use std::path::Path;
 
 use crate::onnx::session;
 use crate::onnx::Quantization;
-use crate::{ModelCapabilities, SpeechModel, TranscribeError, TranscriptionResult};
+use crate::{ModelCapabilities, SpeechModel, TranscribeError, TranscribeOptions, TranscriptionResult};
 
 use super::{MoonshineVariant, SAMPLE_RATE};
 
@@ -254,7 +254,7 @@ impl SpeechModel for MoonshineModel {
     fn transcribe(
         &mut self,
         samples: &[f32],
-        _language: Option<&str>,
+        _options: &TranscribeOptions,
     ) -> Result<TranscriptionResult, TranscribeError> {
         let max_length = {
             let audio_duration_sec = samples.len() as f32 / SAMPLE_RATE as f32;

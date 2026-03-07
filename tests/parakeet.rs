@@ -19,7 +19,7 @@ fn test_jfk_transcription() {
         ParakeetModel::load(&model_path, &Quantization::Int8).expect("Failed to load model");
 
     let result = model
-        .transcribe_file(&audio_path, None)
+        .transcribe_file(&audio_path, &transcribe_rs::TranscribeOptions::default())
         .expect("Failed to transcribe");
 
     let expected = "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country.";
@@ -45,7 +45,7 @@ fn test_timestamps() {
         ParakeetModel::load(&model_path, &Quantization::Int8).expect("Failed to load model");
 
     let result = model
-        .transcribe_file(&audio_path, None)
+        .transcribe_file(&audio_path, &transcribe_rs::TranscribeOptions::default())
         .expect("Failed to transcribe");
 
     assert!(

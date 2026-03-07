@@ -125,7 +125,7 @@ impl SpeechModel for YourModel {
     fn transcribe(
         &mut self,
         samples: &[f32],
-        language: Option<&str>,
+        _options: &TranscribeOptions,
     ) -> Result<TranscriptionResult, TranscribeError> {
         self.infer(samples)
     }
