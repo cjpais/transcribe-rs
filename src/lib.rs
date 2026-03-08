@@ -85,7 +85,9 @@
 
 pub mod audio;
 pub mod error;
+pub mod itn;
 pub use error::TranscribeError;
+pub use itn::apply_itn;
 
 #[cfg(feature = "audio-features")]
 pub mod features;
@@ -133,6 +135,9 @@ pub struct TranscribeOptions {
     pub language: Option<String>,
     /// Whether to translate the output to English (only supported by some engines).
     pub translate: bool,
+    /// Whether to apply inverse text normalization (ITN) to the output.
+    /// Converts spoken-form text (e.g. "twenty three dollars") to written-form ("$23").
+    pub itn: bool,
 }
 
 /// Unified interface for speech-to-text models.
@@ -158,7 +163,11 @@ pub trait SpeechModel: Send {
         options: &TranscribeOptions,
     ) -> Result<TranscriptionResult, TranscribeError> {
         let samples = audio::read_wav_samples(wav_path)?;
-        self.transcribe(&samples, options)
+        let mut result = self.transcribe(&samples, options)?;
+        if options.itn {
+            itn::apply_itn(&mut result);
+        }
+        Ok(result)
     }
 }
 

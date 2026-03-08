@@ -1954,6 +1954,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "text-processing-rs"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c08f01a1e322ef3d9c19bf844ec052b0a2622acd08abe4d692782ce71e3e28a"
+dependencies = [
+ "lazy_static",
+]
+
+[[package]]
 name = "thiserror"
 version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2175,6 +2184,7 @@ dependencies = [
  "rustfft",
  "serde",
  "serde_json",
+ "text-processing-rs",
  "thiserror 2.0.16",
  "tokio",
  "ureq",
