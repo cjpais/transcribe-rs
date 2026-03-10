@@ -20,7 +20,7 @@ cargo run --example bench_compare --features qwen3 --release -- \
 | Qwen3-ASR FP32 (0.6B) | 14.3s | 7.94s | 7.77s | 8.16s | 0.72x |
 | Parakeet-TDT INT8 (0.6B) | 0.9s | 1.88s | 1.60s | 2.07s | 0.17x |
 
-Current best Qwen3 mean: **1.54s** (was 7.94s baseline, with INT8 encoder + INT8 decoder)
+Current best Qwen3 mean: **1.43s** (was 7.94s baseline, with INT8 encoder + INT8 decoder + zero-copy KV cache)
 
 ## Key Files
 - `src/onnx/qwen3/model.rs` — encoder/decoder ONNX inference, KV cache loop
@@ -249,6 +249,88 @@ Ideas to try (add new ones here, move to Experiments when attempted):
 **Outcome:** IMPROVED
 **Committed:** yes (see next commit)
 **Notes:** FP32 encoder baseline (same conditions): 1.76s. Encoder reduced from 717 MB FP32 to 197 MB INT8. Conv ops remain FP32 — no ConvInteger issues. Measured with 2 warmup + 5 runs for accuracy.
+
+### [22] Decoder Thread Sweep (post-INT8-encoder)
+**Date:** 2026-03-11
+**Result:** 3→1.58s, 4→1.63s, 5→1.60s, 6→1.54s (best), 7→1.75s, 8→1.79s. 6 remains optimal.
+**Outcome:** NO CHANGE
+
+### [23] Encoder Thread Sweep (INT8 encoder)
+**Date:** 2026-03-11
+**Result:** 0 (all)→~1.54s, 6→1.56s, 8→1.53s, 12→1.55s. All within noise.
+**Outcome:** NO CHANGE (0=all-cores remains default)
+
+### [24] Disable Intra-Op Spinning (confirmed)
+**Date:** 2026-03-11
+**Result:** Already documented in [19]. Confirmed DEGRADED.
+
+### [25] QDQ Cleanup
+**Date:** 2026-03-11
+**Result:** 1.89s vs 1.54s — DEGRADED.
+**Committed:** no
+
+### [26] with_device_allocator_for_initializers
+**Date:** 2026-03-11
+**Result:** Inference: 1.63s (no change vs 1.61s). Load time: -0.94s (5.2→4.2s).
+**Outcome:** MARGINAL (inference no change, load time improved)
+**Notes:** Not committed since benchmark criterion is inference speed.
+
+### [27] with_env_allocators
+**Date:** 2026-03-11
+**Result:** 1.78s vs 1.54s — DEGRADED and high variance.
+**Committed:** no
+
+### [28] with_aot_inlining
+**Date:** 2026-03-11
+**Result:** 1.66s — marginal/noise vs 1.54s. No improvement.
+
+### [29] GraphOptimizationLevel::Level1
+**Date:** 2026-03-11
+**Result:** 1.68s — DEGRADED vs Level3. Level3 optimal.
+
+### [30] Unified INT8 decoder vs split INT8 decoder
+**Date:** 2026-03-11
+**Result:** Unified: 3.18s vs split: 1.54s — unified is massively DEGRADED. Split decoder allows ORT to optimize for single-token autoregressive steps.
+
+### [31] QUInt8 decoder
+**Date:** 2026-03-11
+**Result:** 2.09s and garbled output. DEGRADED + incorrect.
+
+### [32] MatMul-only INT8 decoder
+**Date:** 2026-03-11
+**Result:** 1.87s vs 1.54s — DEGRADED. Default (full ops) INT8 is better.
+
+### [33] Per-channel INT8 decoder
+**Date:** 2026-03-11
+**Result:** 1.75s — DEGRADED vs per-tensor 1.54s.
+
+### [34] INT8 encoder per-channel (MatMul-only)
+**Date:** 2026-03-11
+**Result:** 1.58s — same as 1.54s within noise. No improvement.
+
+### [35] INT8 decoder with ActivationSymmetric=True
+**Date:** 2026-03-11
+**Result:** 1.61-1.75s — marginal vs 1.54s. No improvement.
+
+### [36] Encoder parallel execution mode (with INT8 encoder)
+**Date:** 2026-03-11
+**Result:** 1.67s — DEGRADED vs 1.54s sequential.
+
+### [37] Pre-allocated token embed + from_shape_vec
+**Date:** 2026-03-11
+**Result:** 1.71s — DEGRADED vs 1.54s. Iterator copy slower than zeros+assign.
+
+### [38] Zero-copy KV cache via DynValue (remove() instead of to_owned())
+**Date:** 2026-03-11
+**Idea:** `SessionOutputs::remove()` returns an owned `DynValue` — the KV cache tensors from the decoder step outputs can be taken by value and passed directly as inputs to the next step, without calling `.try_extract_array()?.to_owned().into_dyn()`. `DynValue` implements `Into<SessionInputValue>` so it can be used in `ort::inputs!` directly.
+**Change:** `src/onnx/qwen3/model.rs` — changed KV cache variables from `ArrayD<f32>` to `DynValue`. Use `init_outputs.remove("present_keys")` after dropping the logits borrow, and `step_outputs.remove("present_keys/values")` after argmax. Added `use ort::value::DynValue`.
+**Result:**
+| Engine | Mean | vs prev best | RTF |
+|---|---|---|---|
+| Qwen3-ASR (zero-copy KV) | 1.43s | -0.11s (-7.0%) | 0.13x |
+**Outcome:** IMPROVED
+**Committed:** yes (see next commit)
+**Notes:** Measured with 2 warmup + 5 runs. Previous: 1.57s, new: 1.46s mean (1.54s to 1.43s with 1 warmup baseline comparison). Saves ~357 MB of memcpy over a 25-step decode (triangular sum of growing KV cache). ORT apparently avoids internal copies when the DynValue is passed as input — confirmed by measurable speedup.
 
 <!-- Append new experiments below. Format:
 ### [N] Experiment Name

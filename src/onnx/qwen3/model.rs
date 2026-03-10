@@ -2,7 +2,7 @@
 
 use ndarray::{Array2, Array3, ArrayD, Ix3, IxDyn};
 use ort::session::Session;
-use ort::value::TensorRef;
+use ort::value::{DynValue, TensorRef};
 use std::path::Path;
 
 use crate::TranscribeError;
@@ -248,7 +248,7 @@ impl Qwen3AsrModel {
         // `self.decoder`) is dropped before the step loop needs to borrow `self.decoder`
         // again, satisfying the borrow checker.
         let (mut current_token, mut keys, mut values) = {
-            let (init_outputs, prefill_label) = match &mut self.decoder {
+            let (mut init_outputs, prefill_label) = match &mut self.decoder {
                 DecoderSessions::Unified(s) => {
                     let empty_keys =
                         ArrayD::<f32>::zeros(IxDyn(&[nl, 1, nkv, 0, hd]));
@@ -277,28 +277,23 @@ impl Qwen3AsrModel {
                     format!("Missing 'logits' from {prefill_label}")
                 ))?
                 .try_extract_array::<f32>()?;
-            let present_keys = init_outputs
-                .get("present_keys")
-                .ok_or_else(|| TranscribeError::Inference(
-                    format!("Missing 'present_keys' from {prefill_label}")
-                ))?
-                .try_extract_array::<f32>()?;
-            let present_values = init_outputs
-                .get("present_values")
-                .ok_or_else(|| TranscribeError::Inference(
-                    format!("Missing 'present_values' from {prefill_label}")
-                ))?
-                .try_extract_array::<f32>()?;
-
             let last_pos = logits.shape()[1].checked_sub(1).ok_or_else(|| {
                 TranscribeError::Inference(
                     format!("{prefill_label} returned empty logits sequence")
                 )
             })?;
             let token = argmax_slice(&logits, last_pos)?;
-            // Clone KV cache into owned arrays before init_outputs drops.
-            let keys = present_keys.to_owned().into_dyn();
-            let values = present_values.to_owned().into_dyn();
+            // Take KV cache by value from outputs — avoids .to_owned() clone of the full KV buffer.
+            // logits borrow ends here (before the remove calls).
+            drop(logits);
+            let keys: DynValue = init_outputs.remove("present_keys")
+                .ok_or_else(|| TranscribeError::Inference(
+                    format!("Missing 'present_keys' from {prefill_label}")
+                ))?;
+            let values: DynValue = init_outputs.remove("present_values")
+                .ok_or_else(|| TranscribeError::Inference(
+                    format!("Missing 'present_values' from {prefill_label}")
+                ))?;
             (token, keys, values)
             // init_outputs drops here, releasing the borrow on self.decoder.
         };
@@ -332,13 +327,15 @@ impl Qwen3AsrModel {
             let step_pos = ArrayD::<i64>::from_shape_vec(IxDyn(&[1, 1]), vec![pos])?;
 
             // Both unified and split step sessions share the same KV-cache interface.
+            // Pass KV cache by value: DynValue implements Into<SessionInputValue>,
+            // so ORT can reference the memory directly without an extra ndarray copy.
             let step_inputs = ort::inputs![
                 "input_embeds"  => TensorRef::from_array_view(token_embed.view())?,
                 "position_ids"  => TensorRef::from_array_view(step_pos.view())?,
-                "past_keys"     => TensorRef::from_array_view(keys.view())?,
-                "past_values"   => TensorRef::from_array_view(values.view())?,
+                "past_keys"     => keys,
+                "past_values"   => values,
             ];
-            let step_outputs = match &mut self.decoder {
+            let mut step_outputs = match &mut self.decoder {
                 DecoderSessions::Unified(s) => s.run(step_inputs)?,
                 DecoderSessions::Split { step, .. } => step.run(step_inputs)?,
             };
@@ -350,29 +347,19 @@ impl Qwen3AsrModel {
                 ))?
                 .try_extract_array::<f32>()?;
 
-            // Extract updated KV state before any early exit so the ordering is explicit.
-            let next_keys = step_outputs
-                .get("present_keys")
-                .ok_or_else(|| TranscribeError::Inference(
-                    "Missing 'present_keys' from step".into()
-                ))?
-                .try_extract_array::<f32>()?
-                .to_owned()
-                .into_dyn();
-            let next_values = step_outputs
-                .get("present_values")
-                .ok_or_else(|| TranscribeError::Inference(
-                    "Missing 'present_values' from step".into()
-                ))?
-                .try_extract_array::<f32>()?
-                .to_owned()
-                .into_dyn();
-
             current_token = argmax_slice(&step_logits, 0)?;
             output_tokens.push(current_token);
             pos += 1;
-            keys = next_keys;
-            values = next_values;
+            // Take updated KV cache by value — no .to_owned() clone needed.
+            drop(step_logits);
+            keys = step_outputs.remove("present_keys")
+                .ok_or_else(|| TranscribeError::Inference(
+                    "Missing 'present_keys' from step".into()
+                ))?;
+            values = step_outputs.remove("present_values")
+                .ok_or_else(|| TranscribeError::Inference(
+                    "Missing 'present_values' from step".into()
+                ))?;
 
             if self.config.special_tokens.eos_token_ids.contains(&current_token) {
                 break;
