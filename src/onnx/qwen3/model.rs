@@ -110,14 +110,19 @@ impl Qwen3AsrModel {
         // enabling ORT to apply more targeted optimizations for single-token autoregressive steps.
         // Fall back to unified (decoder.onnx) if split files are absent.
         //
-        // Quantization selection: when the caller requests FP32, check if INT8 split decoder
-        // files exist and prefer them — INT8 weight quantization gives ~2x inference speedup
-        // with negligible quality loss for ASR on modern CPUs (VNNI/AVX-512VNNI).
+        // Quantization selection: when the caller requests FP32, auto-detect INT8 decoders.
+        // Preference order: INT8 split > INT8 unified > FP32 split > FP32 unified.
+        // INT8 weight quantization gives ~2x inference speedup with negligible quality loss
+        // for ASR on modern CPUs (VNNI/AVX-512VNNI).
         let decoder_quantization = if *quantization == Quantization::FP32 {
             let int8_init = session::resolve_model_path(model_dir, "decoder_init", &Quantization::Int8);
             let int8_step = session::resolve_model_path(model_dir, "decoder_step", &Quantization::Int8);
+            let int8_unified = session::resolve_model_path(model_dir, "decoder", &Quantization::Int8);
             if int8_init.exists() && int8_step.exists() {
-                log::info!("INT8 decoder found; using INT8 split decoder for faster inference");
+                log::info!("INT8 split decoder found; using for faster inference");
+                &Quantization::Int8
+            } else if int8_unified.exists() {
+                log::info!("INT8 unified decoder found; using for faster inference");
                 &Quantization::Int8
             } else {
                 quantization
@@ -411,13 +416,6 @@ impl Qwen3AsrModel {
 }
 
 fn load_embed_tokens(path: &Path, config: &Qwen3AsrConfig) -> Result<Array2<f32>, TranscribeError> {
-    if config.embed_tokens_dtype != "float32" {
-        return Err(TranscribeError::Config(format!(
-            "embed_tokens_dtype '{}' is not supported; only 'float32' is implemented",
-            config.embed_tokens_dtype
-        )));
-    }
-
     let [vocab_size, hidden_size] = config.embed_tokens_shape;
     // Sanity-check sizes before multiplying to avoid overflow on 32-bit targets
     // and to catch obviously corrupt config values.
@@ -428,9 +426,21 @@ fn load_embed_tokens(path: &Path, config: &Qwen3AsrConfig) -> Result<Array2<f32>
             vocab_size, hidden_size, MAX_DIM
         )));
     }
+
+    let bytes_per_element: usize = match config.embed_tokens_dtype.as_str() {
+        "float32" => 4,
+        "float16" => 2,
+        other => {
+            return Err(TranscribeError::Config(format!(
+                "embed_tokens_dtype '{}' is not supported; supported: float32, float16",
+                other
+            )));
+        }
+    };
+
     let expected_bytes = vocab_size
         .checked_mul(hidden_size)
-        .and_then(|n| n.checked_mul(4))
+        .and_then(|n| n.checked_mul(bytes_per_element))
         .ok_or_else(|| {
             TranscribeError::Config(format!(
                 "embed_tokens_shape [{}, {}] overflows usize",
@@ -448,22 +458,67 @@ fn load_embed_tokens(path: &Path, config: &Qwen3AsrConfig) -> Result<Array2<f32>
     })?;
     if file_size != expected_bytes {
         return Err(TranscribeError::Config(format!(
-            "embed_tokens.bin size {} != expected {} ({}x{}x4)",
-            file_size, expected_bytes, vocab_size, hidden_size
+            "embed_tokens.bin size {} != expected {} ({}x{}x{})",
+            file_size, expected_bytes, vocab_size, hidden_size, bytes_per_element
         )));
     }
 
     let data = std::fs::read(path)?;
 
-    let float_data: Vec<f32> = data
-        .chunks_exact(4)
-        .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
-        .collect();
+    let float_data: Vec<f32> = match bytes_per_element {
+        4 => data
+            .chunks_exact(4)
+            .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+            .collect(),
+        2 => {
+            log::info!("Converting FP16 embeddings to FP32 ({:.1} MB → {:.1} MB in memory)",
+                file_size as f64 / 1e6, (vocab_size * hidden_size * 4) as f64 / 1e6);
+            data.chunks_exact(2)
+                .map(|chunk| f16_to_f32(u16::from_le_bytes([chunk[0], chunk[1]])))
+                .collect()
+        }
+        _ => unreachable!(),
+    };
 
     Ok(Array2::from_shape_vec(
         (vocab_size, hidden_size),
         float_data,
     )?)
+}
+
+/// Convert an IEEE 754 binary16 (half-precision) value to f32.
+///
+/// Handles normals, subnormals, infinities and NaN without external dependencies.
+#[inline]
+fn f16_to_f32(h: u16) -> f32 {
+    let sign = ((h >> 15) & 1) as u32;
+    let exp = ((h >> 10) & 0x1F) as u32;
+    let mant = (h & 0x3FF) as u32;
+
+    let bits = if exp == 0 {
+        if mant == 0 {
+            // +/- zero
+            sign << 31
+        } else {
+            // Subnormal: normalize
+            let mut m = mant;
+            let mut e: i32 = -14 + 127; // bias-adjusted exponent for subnormals
+            while m & 0x400 == 0 {
+                m <<= 1;
+                e -= 1;
+            }
+            m &= 0x3FF; // remove implicit leading bit
+            (sign << 31) | ((e as u32) << 23) | (m << 13)
+        }
+    } else if exp == 0x1F {
+        // Infinity or NaN: exponent all-ones → f32 all-ones exponent
+        (sign << 31) | (0xFF << 23) | (mant << 13)
+    } else {
+        // Normal: rebias exponent from f16 bias (15) to f32 bias (127)
+        let f32_exp = exp - 15 + 127;
+        (sign << 31) | (f32_exp << 23) | (mant << 13)
+    };
+    f32::from_bits(bits)
 }
 
 /// Argmax over a 3D logits array at `[0, pos, :]`.

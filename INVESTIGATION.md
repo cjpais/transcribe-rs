@@ -435,6 +435,27 @@ Key insights:
 **Result:** 1.713s avg (3×10 runs) vs 1.506s baseline — DEGRADED. Layer-sequential computation structure means more threads = more synchronization overhead. Consistent with earlier experiment [1] finding.
 **Outcome:** DEGRADED
 
+### [54] Unified vs Split INT8 decoder comparison
+**Date:** 2026-03-11
+**Idea:** Measure unified INT8 decoder (`decoder.int8.onnx`, 571 MB) vs split INT8 decoder (`decoder_init.int8.onnx` + `decoder_step.int8.onnx`, 571 MB each) to quantify the speed gap. Also added unified INT8 auto-detection to the Rust loader as fallback.
+**Change:** `src/onnx/qwen3/model.rs` — extended decoder quantization auto-detection to check for unified INT8 (`decoder.int8.onnx`) when split INT8 files are absent.
+**Result:**
+| Config | Load | Mean | RTF |
+|---|---|---|---|
+| Split INT8 (baseline) | 6.6s | 1.305s | 0.12x |
+| Unified INT8 | 15.2s | 2.729s | 0.25x |
+
+Split is 2.1x faster inference and 2.3x faster load. The unified decoder must handle both prefill (variable-length input) and step (single-token input) paths, preventing ORT from optimizing for the single-token case. The split decoder_step model is specialized for single-token decode, enabling more aggressive graph optimization.
+**Outcome:** Split confirmed superior. Unified INT8 fallback detection added to Rust loader.
+**Committed:** pending (code improvement, no perf change)
+**Notes:** Transcription difference: split produces comma ("for you, ask") while unified produces semicolon ("for you; ask"). Both are acceptable ASR outputs.
+
+### [55] ORT Transformer Optimizer on FP32 decoder (fusion)
+**Date:** 2026-03-11
+**Idea:** Run `onnxruntime.transformers.optimizer` on decoder models to fuse multi-head attention, LayerNorm, etc.
+**Result:** Optimizer applied 113 SimplifiedLayerNormalization fusions (28 layers × ~4 per layer) on FP32 decoder_step.onnx (2266 → 1586 nodes). However, the saved output was a single 2.3 GB protobuf file (inlined all external data), incompatible with ONNX loading. On INT8 model, optimizer crashed with `AttributeError` in `fusion_quickgelu.py` — INT8 models with DynamicQuantizeLinear nodes are not supported by the fusion passes.
+**Outcome:** BLOCKED (optimizer cannot handle INT8 models; FP32 output format broken)
+
 <!-- Append new experiments below. Format:
 ### [N] Experiment Name
 **Date:** YYYY-MM-DD
