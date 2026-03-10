@@ -51,7 +51,7 @@ pub fn create_session_with_threads(
     }
 
     let session = builder
-        .with_execution_providers([CPUExecutionProvider::default().build()])?
+        .with_execution_providers([CPUExecutionProvider::default().with_arena_allocator(true).build()])?
         .commit_from_file(path)?;
 
     Ok(session)
