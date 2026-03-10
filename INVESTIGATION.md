@@ -400,6 +400,41 @@ Key insights:
 **Outcome:** DEGRADED
 **Notes:** Python ORT 1.24.3 (PIP) is faster, but the ORT 1.24.2 binary from pyke.io (used by ort crate) is slower. Reverting to rc.10 + ndarray 0.16.
 
+### [48] Stage timing instrumentation
+**Date:** 2026-03-10
+**Finding:** Added timing probes to transcribe(): Mel=4-10ms, Encoder=300-450ms (warm ~300ms), Decoder=1200-1550ms (warm ~1200ms).
+**Takeaway:** Decoder is 80% of total pipeline time. Encoder is 20%. Mel is <1%. Both Encoder and Decoder have high per-run variance (±150ms).
+
+### [49] Pre-allocated step buffers
+**Date:** 2026-03-10
+**Idea:** Move `Array3::zeros((1,1,hidden_size))` and `ArrayD::from_shape_vec` allocations outside the decode loop to avoid ~4KB heap alloc+zero+dealloc per step.
+**Result:** No measurable effect. 3×10-run comparison: baseline avg 1.403s, pre-alloc avg 1.420s — within noise. The 100KB total allocation over 25 steps is negligible compared to ORT session overhead.
+**Outcome:** MARGINAL (no measurable effect)
+
+### [50] Denormal-as-zero session flag
+**Date:** 2026-03-10
+**Idea:** `with_denormal_as_zero()` enables flush-to-zero + DAZ which eliminates CPU microcode trap for subnormal floats. Relevant if model intermediate values approach zero.
+**Result:** Baseline avg 1.419s, with flag avg 1.420s — identical. The INT8 quantized decoder likely avoids denormals naturally (quantization clips small values).
+**Outcome:** NO CHANGE
+
+### [51] Approximate GELU on encoder only
+**Date:** 2026-03-10
+**Idea:** INT8 encoder has 22 Erf ops (standard GELU). `with_approximate_gelu()` replaces erf() with tanh approximation, which should be faster. Applied only to encoder via new `create_session_with_threads_gelu()` function; decoder uses SiLU (not affected).
+**Result:** Baseline avg 1.403s, with GELU approx avg 1.395s — within noise. The 22 Erf ops are a negligible fraction of encoder compute dominated by 111 INT8 MatMuls.
+**Outcome:** NO CHANGE
+
+### [52] Encoder threads = 8 (physical cores only)
+**Date:** 2026-03-10
+**Idea:** 8-core HT CPU; using 16 logical threads for encoder might cause HT contention. Try pinning to 8 physical cores.
+**Result:** Baseline avg 1.403s, 8-thread avg 1.476s — within noise (if anything slightly worse). HT contention not the limiting factor.
+**Outcome:** NO CHANGE
+
+### [53] Decoder init with all cores (decoder_init_threads=0)
+**Date:** 2026-03-10
+**Idea:** decoder_init processes ~150-token sequence; larger sequence might benefit from more parallelism.
+**Result:** 1.713s avg (3×10 runs) vs 1.506s baseline — DEGRADED. Layer-sequential computation structure means more threads = more synchronization overhead. Consistent with earlier experiment [1] finding.
+**Outcome:** DEGRADED
+
 <!-- Append new experiments below. Format:
 ### [N] Experiment Name
 **Date:** YYYY-MM-DD
