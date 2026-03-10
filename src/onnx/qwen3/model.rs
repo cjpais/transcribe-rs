@@ -77,7 +77,22 @@ impl Qwen3AsrModel {
             )));
         }
 
-        let encoder_path = session::resolve_model_path(model_dir, "encoder", quantization);
+        // Encoder INT8 auto-detection: when FP32 is requested, check if an INT8 encoder
+        // exists and prefer it. The encoder has 147 MatMul ops and only 3 Conv ops;
+        // MatMul-only INT8 quantization reduces weight size from ~717 MB to ~197 MB and
+        // improves throughput via VNNI integer kernels without ConvInteger compatibility issues.
+        let encoder_quantization = if *quantization == Quantization::FP32 {
+            let int8_path = session::resolve_model_path(model_dir, "encoder", &Quantization::Int8);
+            if int8_path.exists() {
+                log::info!("INT8 encoder found; using INT8 encoder for faster inference");
+                &Quantization::Int8
+            } else {
+                quantization
+            }
+        } else {
+            quantization
+        };
+        let encoder_path = session::resolve_model_path(model_dir, "encoder", encoder_quantization);
         if !encoder_path.exists() {
             return Err(TranscribeError::ModelNotFound(encoder_path));
         }
