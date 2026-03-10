@@ -86,7 +86,7 @@ impl Qwen3AsrModel {
         // Decoder runs sequentially (one step per token); fewer threads reduces
         // synchronization overhead relative to useful work per step.
         let encoder_threads = 0; // 0 = ORT default (all cores)
-        let decoder_threads = 4; // tuned: fewer threads for sequential per-token steps
+        let decoder_threads = 6; // tuned: fewer threads for sequential per-token steps
 
         log::info!("Loading Qwen3-ASR encoder from {:?}", encoder_path);
         let encoder = session::create_session_with_threads(&encoder_path, encoder_threads)?;
