@@ -40,9 +40,11 @@ pub fn create_session_with_threads(
     path: &Path,
     num_threads: usize,
 ) -> Result<Session, ort::Error> {
+    // Sequential execution: for the autoregressive decoder, nodes are largely a linear chain
+    // (attention → FFN × 28 layers). Parallel mode adds scheduling overhead without benefit.
     let mut builder = Session::builder()?
         .with_optimization_level(GraphOptimizationLevel::Level3)?
-        .with_parallel_execution(true)?;
+        .with_parallel_execution(false)?;
 
     if num_threads > 0 {
         builder = builder.with_intra_threads(num_threads)?;
