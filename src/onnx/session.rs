@@ -32,12 +32,17 @@ pub fn create_session(path: &Path) -> Result<Session, ort::Error> {
 }
 
 /// Create an ONNX session with configurable thread count.
+///
+/// `num_threads` = 0 means use the ORT default (all available cores).
+/// For sessions running many sequential steps (e.g. autoregressive decoder),
+/// a lower thread count reduces synchronization overhead.
 pub fn create_session_with_threads(
     path: &Path,
     num_threads: usize,
 ) -> Result<Session, ort::Error> {
     let mut builder = Session::builder()?
-        .with_optimization_level(GraphOptimizationLevel::Level3)?;
+        .with_optimization_level(GraphOptimizationLevel::Level3)?
+        .with_parallel_execution(true)?;
 
     if num_threads > 0 {
         builder = builder.with_intra_threads(num_threads)?;

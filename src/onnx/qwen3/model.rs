@@ -82,15 +82,21 @@ impl Qwen3AsrModel {
             return Err(TranscribeError::ModelNotFound(encoder_path));
         }
 
+        // Encoder is a single-pass; use all available cores.
+        // Decoder runs sequentially (one step per token); fewer threads reduces
+        // synchronization overhead relative to useful work per step.
+        let encoder_threads = 0; // 0 = ORT default (all cores)
+        let decoder_threads = 4; // tuned: fewer threads for sequential per-token steps
+
         log::info!("Loading Qwen3-ASR encoder from {:?}", encoder_path);
-        let encoder = session::create_session(&encoder_path)?;
+        let encoder = session::create_session_with_threads(&encoder_path, encoder_threads)?;
 
         // Prefer unified decoder (decoder.onnx) — single file, no weight duplication.
         // Fall back to split (decoder_init.onnx + decoder_step.onnx) for existing exports.
         let unified_path = session::resolve_model_path(model_dir, "decoder", quantization);
         let decoder = if unified_path.exists() {
             log::info!("Loading Qwen3-ASR unified decoder from {:?}", unified_path);
-            DecoderSessions::Unified(session::create_session(&unified_path)?)
+            DecoderSessions::Unified(session::create_session_with_threads(&unified_path, decoder_threads)?)
         } else {
             let decoder_init_path =
                 session::resolve_model_path(model_dir, "decoder_init", quantization);
@@ -105,8 +111,8 @@ impl Qwen3AsrModel {
             log::info!("Loading Qwen3-ASR split decoder from {:?} + {:?}",
                 decoder_init_path, decoder_step_path);
             DecoderSessions::Split {
-                init: session::create_session(&decoder_init_path)?,
-                step: session::create_session(&decoder_step_path)?,
+                init: session::create_session_with_threads(&decoder_init_path, decoder_threads)?,
+                step: session::create_session_with_threads(&decoder_step_path, decoder_threads)?,
             }
         };
 
