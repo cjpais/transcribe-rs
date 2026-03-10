@@ -40,11 +40,31 @@ pub fn create_session_with_threads(
     path: &Path,
     num_threads: usize,
 ) -> Result<Session, ort::Error> {
-    // Sequential execution: for the autoregressive decoder, nodes are largely a linear chain
-    // (attention → FFN × 28 layers). Parallel mode adds scheduling overhead without benefit.
+    create_session_with_opts(path, num_threads, GraphOptimizationLevel::Level3)
+}
+
+/// Create an ONNX session with configurable thread count, optimization level, and parallel execution.
+pub fn create_session_with_opts(
+    path: &Path,
+    num_threads: usize,
+    opt_level: GraphOptimizationLevel,
+) -> Result<Session, ort::Error> {
+    create_session_full(path, num_threads, opt_level, false)
+}
+
+/// Create an ONNX session with full control over settings.
+///
+/// `parallel` enables ORT inter-op parallelism (running independent nodes concurrently).
+/// Beneficial for single-pass models like encoders; harmful for sequential decode loops.
+pub fn create_session_full(
+    path: &Path,
+    num_threads: usize,
+    opt_level: GraphOptimizationLevel,
+    parallel: bool,
+) -> Result<Session, ort::Error> {
     let mut builder = Session::builder()?
-        .with_optimization_level(GraphOptimizationLevel::Level3)?
-        .with_parallel_execution(false)?;
+        .with_optimization_level(opt_level)?
+        .with_parallel_execution(parallel)?;
 
     if num_threads > 0 {
         builder = builder.with_intra_threads(num_threads)?;

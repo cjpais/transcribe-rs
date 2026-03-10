@@ -20,7 +20,7 @@ cargo run --example bench_compare --features qwen3 --release -- \
 | Qwen3-ASR FP32 (0.6B) | 14.3s | 7.94s | 7.77s | 8.16s | 0.72x |
 | Parakeet-TDT INT8 (0.6B) | 0.9s | 1.88s | 1.60s | 2.07s | 0.17x |
 
-Current best Qwen3 mean: **~1.54s** (was 7.94s baseline; steady-state 10-run measurement with INT8 encoder + INT8 decoder + zero-copy KV cache; the earlier 1.43s was an optimistic short-run measurement)
+Current best Qwen3 mean: **~1.25s** (was 7.94s baseline → 1.54s with INT8+zero-copy; further improved to ~1.25s after system stabilization and reduced measurement noise)
 
 ## Key Files
 - `src/onnx/qwen3/model.rs` — encoder/decoder ONNX inference, KV cache loop
@@ -455,6 +455,109 @@ Split is 2.1x faster inference and 2.3x faster load. The unified decoder must ha
 **Idea:** Run `onnxruntime.transformers.optimizer` on decoder models to fuse multi-head attention, LayerNorm, etc.
 **Result:** Optimizer applied 113 SimplifiedLayerNormalization fusions (28 layers × ~4 per layer) on FP32 decoder_step.onnx (2266 → 1586 nodes). However, the saved output was a single 2.3 GB protobuf file (inlined all external data), incompatible with ONNX loading. On INT8 model, optimizer crashed with `AttributeError` in `fusion_quickgelu.py` — INT8 models with DynamicQuantizeLinear nodes are not supported by the fusion passes.
 **Outcome:** BLOCKED (optimizer cannot handle INT8 models; FP32 output format broken)
+
+### [56] Shared external data for FP32 split decoder
+**Date:** 2026-03-11
+**Idea:** Both `decoder_init.onnx.data` and `decoder_step.onnx.data` contain model weights (2.3 GB each). If the byte layouts match, point both ONNX files at a single shared `.data` file to halve FP32 decoder disk footprint.
+**Result:** Analysis showed only 120 of 331/357 initializers share names between init and step models. Of those 120, only 56 have matching offsets/lengths and 7 have data mismatches. The init-only (2.33 GB) and step-only (2.32 GB) data dominate, with only 51 MB shared. Potential savings: 63 MB (1.3%) — not worth the complexity.
+**Outcome:** ABANDONED (minimal savings; different ONNX graph structures from separate export traces)
+
+### [57] onnxsim on INT8 models
+**Date:** 2026-03-11
+**Idea:** Run onnxsim (graph simplification) on INT8 encoder, decoder_init, decoder_step to reduce node count and potentially improve inference speed. Pre-existing `.sim.onnx` files: encoder 197→191 MB, decoders 571→570 MB.
+**Result:**
+| Config | Mean |
+|---|---|
+| Original INT8 (baseline) | 1.272s |
+| onnxsim INT8 | 1.254s |
+Within noise. Transcription identical.
+**Outcome:** NO CHANGE (marginal size reduction, no speed improvement)
+
+### [58] Encoder optimization Level1 vs Level3
+**Date:** 2026-03-11
+**Idea:** Test ORT graph optimization Level1 for encoder (skip complex fusions). Level3 may add overhead for relatively simple encoder graph.
+**Change:** `src/onnx/session.rs` — added `create_session_with_opts()` and `create_session_full()` for configurable optimization level and parallel execution.
+**Result:**
+| Config | Mean |
+|---|---|
+| Level3 (baseline) | 1.272s |
+| Level1 encoder | 1.304s |
+Level3 graph optimizations help the encoder. Level1 is worse.
+**Outcome:** DEGRADED (reverted; kept session API additions)
+
+### [59] RMSNorm fusion to SimplifiedLayerNormalization
+**Date:** 2026-03-11
+**Idea:** INT8 decoder has 113 unfused RMSNorm patterns (Pow→ReduceMean→Add→Sqrt→Reciprocal→Mul→Mul = 7 nodes each = 791 nodes). Neither the quantizer nor ORT Level3 fuses these. Wrote `fuse_rmsnorm.py` to replace them with `com.microsoft:SimplifiedLayerNormalization` ops, reducing decoder_step from 2970→2292 nodes.
+**Result:** ORT error: `com.microsoft:SimplifiedLayerNormalization(-1) is not a registered function/op`. The pyke.io ORT binary (1.24.2) used by the `ort` Rust crate does not include this contrib op. Also confirmed it's missing from Python ORT 1.24.2.
+**Outcome:** BLOCKED (contrib op not available in this ORT build)
+**Notes:** The fusion script works correctly — 113 patterns detected and fused. Would need an ORT build with the op enabled, or a different fusion target.
+
+### [60] Decode loop profiling (Rust-side overhead vs ORT execution)
+**Date:** 2026-03-11
+**Idea:** Add per-step timing to identify if Rust-side overhead (embedding lookup, tensor construction, argmax) is significant vs ORT session.run() time.
+**Result:** For 29 decode steps:
+- ORT session.run(): 26.3ms/step (99.7% of decode loop time)
+- Input preparation (ort::inputs! macro): 0.01ms/step
+- Argmax + post-processing: 0.7ms/step total
+
+Breakdown of total 1.25s pipeline:
+- Mel spectrogram: ~5ms
+- Encoder: ~240ms
+- Prefill (decoder_init): ~260ms
+- Decode steps (29 × 26ms): ~755ms
+**Outcome:** INFORMATIONAL — ORT execution dominates; Rust overhead is negligible
+**Notes:** Profiling code removed after data collection.
+
+### [61] WoQ4 (4-bit weight-only quantization) decoder
+**Date:** 2026-03-11
+**Idea:** Test pre-existing WoQ4 decoder files (305 MB each vs 571 MB INT8). Uses `MatMulNBits` contrib op for 4-bit weight decompression.
+**Result:**
+| Config | Load | Mean | RTF |
+|---|---|---|---|
+| INT8 split (baseline) | 4.7s | 1.25s | 0.11x |
+| WoQ4 split | 3.4s | 1.79s | 0.16x |
+43% slower inference. Transcription slightly different ("so my" vs "so, my"). The 4-bit dequantization overhead on CPU outweighs smaller model size.
+**Outcome:** DEGRADED (43% slower)
+
+### [62] Decoder thread count tuning (4 vs 6 vs 8)
+**Date:** 2026-03-11
+**Idea:** Re-test decoder thread counts around the current setting of 6. 4 threads may reduce synchronization overhead further; 8 threads (physical core count) may increase parallelism.
+**Result:**
+| Threads | ORT ms/step | Total mean |
+|---|---|---|
+| 4 | 26.9 | ~1.33s |
+| 6 (baseline) | 26.3 | ~1.25s |
+| 8 | 27.2-30.7 | ~1.30s (high variance) |
+6 threads confirmed optimal. 4 too few parallelism for the 28-layer decoder. 8 causes HT contention.
+**Outcome:** NO CHANGE (6 threads confirmed optimal)
+
+### [63] Parallel execution for encoder
+**Date:** 2026-03-11
+**Idea:** Enable `with_parallel_execution(true)` for encoder session only. The encoder is a single forward pass with independent attention heads that could benefit from inter-op parallelism, unlike the sequential decoder.
+**Change:** `src/onnx/session.rs` — added `create_session_full()` with parallel execution parameter.
+**Result:**
+| Config | Mean |
+|---|---|
+| Sequential encoder (baseline) | 1.25s |
+| Parallel encoder | 1.30s |
+Slightly worse — inter-op scheduling overhead exceeds any parallelism benefit.
+**Outcome:** DEGRADED (reverted encoder to sequential; kept session API)
+
+### [64] Generate 1.7B INT8 quantized models
+**Date:** 2026-03-11
+**Idea:** Run INT8 dynamic quantization on the 1.7B model for future HuggingFace release and downstream testing.
+**Result:** Quantization successful:
+| Component | FP32 | INT8 | Ratio |
+|---|---|---|---|
+| encoder.onnx | 1277 MB | 326 MB | 25.5% |
+| decoder_init.onnx | 6884 MB | 1723 MB | 25.0% |
+| decoder_step.onnx | 6884 MB | 1723 MB | 25.0% |
+| embed_tokens.bin | 1245 MB | 622 MB | 50.0% |
+| **Total** | **16305 MB** | **4408 MB** | **27.0%** |
+
+Output at `~/qwen3-asr-onnx/output/qwen3-asr-1.7b-int8/`. INT8 decoders use external data format (1.7 GB `.onnx.data` files) since they exceed the 2 GB protobuf limit.
+**Outcome:** COMPLETED (model artifacts generated, not a speed optimization)
+**Notes:** Not benchmarked — 1.7B inference on CPU would be slow. Primary value is for GPU deployment and HuggingFace distribution.
 
 <!-- Append new experiments below. Format:
 ### [N] Experiment Name

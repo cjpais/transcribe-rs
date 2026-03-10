@@ -21,12 +21,16 @@ fn test_qwen3_transcribe() -> Result<(), Box<dyn std::error::Error>> {
 
     let result = model.transcribe_file(&wav_path, &transcribe_rs::TranscribeOptions::default())?;
 
-    let expected = "And so, my fellow Americans, ask not what your country can do for you; ask what you can do for your country.";
-    assert_eq!(
-        result.text.trim(),
-        expected,
-        "\nExpected: '{}'\nActual: '{}'",
-        expected,
+    // INT8 split decoder produces comma; FP32/unified produces semicolon.
+    // Both are acceptable transcriptions of the JFK quote.
+    let acceptable = [
+        "And so, my fellow Americans, ask not what your country can do for you; ask what you can do for your country.",
+        "And so, my fellow Americans, ask not what your country can do for you, ask what you can do for your country.",
+    ];
+    assert!(
+        acceptable.contains(&result.text.trim()),
+        "\nExpected one of: {:?}\nActual: '{}'",
+        acceptable,
         result.text.trim()
     );
 
@@ -76,11 +80,11 @@ fn test_qwen3_max_tokens_truncation() -> Result<(), Box<dyn std::error::Error>> 
     let result = model.transcribe_with(&samples, &Qwen3Params { max_tokens: 5 })?;
 
     assert!(!result.text.is_empty(), "truncated result should be non-empty");
-    let full = "And so, my fellow Americans, ask not what your country can do for you; ask what you can do for your country.";
-    assert_ne!(
-        result.text.trim(),
-        full,
-        "5-token result should be shorter than the full transcription"
+    // With max_tokens=5, the output should be much shorter than the full transcription.
+    assert!(
+        result.text.trim().len() < 80,
+        "5-token result should be shorter than full transcription, got: '{}'",
+        result.text.trim()
     );
 
     Ok(())
