@@ -91,29 +91,26 @@ impl Qwen3AsrModel {
         log::info!("Loading Qwen3-ASR encoder from {:?}", encoder_path);
         let encoder = session::create_session_with_threads(&encoder_path, encoder_threads)?;
 
-        // Prefer unified decoder (decoder.onnx) — single file, no weight duplication.
-        // Fall back to split (decoder_init.onnx + decoder_step.onnx) for existing exports.
+        // Prefer split decoder (decoder_init.onnx + decoder_step.onnx) — decoder_step is smaller,
+        // enabling ORT to apply more targeted optimizations for single-token autoregressive steps.
+        // Fall back to unified (decoder.onnx) if split files are absent.
+        let decoder_init_path =
+            session::resolve_model_path(model_dir, "decoder_init", quantization);
+        let decoder_step_path =
+            session::resolve_model_path(model_dir, "decoder_step", quantization);
         let unified_path = session::resolve_model_path(model_dir, "decoder", quantization);
-        let decoder = if unified_path.exists() {
-            log::info!("Loading Qwen3-ASR unified decoder from {:?}", unified_path);
-            DecoderSessions::Unified(session::create_session_with_threads(&unified_path, decoder_threads)?)
-        } else {
-            let decoder_init_path =
-                session::resolve_model_path(model_dir, "decoder_init", quantization);
-            if !decoder_init_path.exists() {
-                return Err(TranscribeError::ModelNotFound(decoder_init_path));
-            }
-            let decoder_step_path =
-                session::resolve_model_path(model_dir, "decoder_step", quantization);
-            if !decoder_step_path.exists() {
-                return Err(TranscribeError::ModelNotFound(decoder_step_path));
-            }
+        let decoder = if decoder_init_path.exists() && decoder_step_path.exists() {
             log::info!("Loading Qwen3-ASR split decoder from {:?} + {:?}",
                 decoder_init_path, decoder_step_path);
             DecoderSessions::Split {
                 init: session::create_session_with_threads(&decoder_init_path, decoder_threads)?,
                 step: session::create_session_with_threads(&decoder_step_path, decoder_threads)?,
             }
+        } else if unified_path.exists() {
+            log::info!("Loading Qwen3-ASR unified decoder from {:?}", unified_path);
+            DecoderSessions::Unified(session::create_session_with_threads(&unified_path, decoder_threads)?)
+        } else {
+            return Err(TranscribeError::ModelNotFound(decoder_init_path));
         };
 
         let embed_path = model_dir.join("embed_tokens.bin");
