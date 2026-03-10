@@ -486,9 +486,25 @@ fn argmax_slice(logits: &ndarray::ArrayViewD<'_, f32>, pos: usize) -> Result<i64
     }
 
     let vocab_size = shape[2];
+
+    // Use contiguous slice for cache-friendly linear scan.
+    // ORT output tensors are row-major, so [0, pos, :] is a contiguous block.
+    // This enables LLVM to auto-vectorize the argmax with AVX-512.
+    let row = logits.slice(ndarray::s![0, pos, ..]);
+    if let Some(slice) = row.as_slice() {
+        let best_idx = slice
+            .iter()
+            .enumerate()
+            .fold((0usize, f32::NEG_INFINITY), |(bi, bv), (i, &v)| {
+                if v > bv { (i, v) } else { (bi, bv) }
+            })
+            .0;
+        return Ok(best_idx as i64);
+    }
+
+    // Fallback: non-contiguous layout (should not occur with ORT CPU output tensors)
     let mut best_idx = 0i64;
     let mut best_val = f32::NEG_INFINITY;
-
     for v in 0..vocab_size {
         let val = logits[[0, pos, v]];
         if val > best_val {

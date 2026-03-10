@@ -20,7 +20,7 @@ cargo run --example bench_compare --features qwen3 --release -- \
 | Qwen3-ASR FP32 (0.6B) | 14.3s | 7.94s | 7.77s | 8.16s | 0.72x |
 | Parakeet-TDT INT8 (0.6B) | 0.9s | 1.88s | 1.60s | 2.07s | 0.17x |
 
-Current best Qwen3 mean: **1.43s** (was 7.94s baseline, with INT8 encoder + INT8 decoder + zero-copy KV cache)
+Current best Qwen3 mean: **~1.54s** (was 7.94s baseline; steady-state 10-run measurement with INT8 encoder + INT8 decoder + zero-copy KV cache; the earlier 1.43s was an optimistic short-run measurement)
 
 ## Key Files
 - `src/onnx/qwen3/model.rs` — encoder/decoder ONNX inference, KV cache loop
@@ -331,6 +331,74 @@ Ideas to try (add new ones here, move to Experiments when attempted):
 **Outcome:** IMPROVED
 **Committed:** yes (see next commit)
 **Notes:** Measured with 2 warmup + 5 runs. Previous: 1.57s, new: 1.46s mean (1.54s to 1.43s with 1 warmup baseline comparison). Saves ~357 MB of memcpy over a 25-step decode (triangular sum of growing KV cache). ORT apparently avoids internal copies when the DynValue is passed as input — confirmed by measurable speedup.
+
+### [39] ForceQuantizeNoInputCheck for encoder INT8
+**Date:** 2026-03-11
+**Idea:** Encoder has 36 FP32 MatMul ops remaining after MatMul-only INT8 quantization. These are attention Q×K^T and scores×V ops (both inputs are activations, no static weights). `ForceQuantizeNoInputCheck=True` in extra_options was tried to force-quantize them.
+**Result:** Same 36 FP32 MatMul ops — `ForceQuantizeNoInputCheck` has no effect on MatMuls where both inputs are dynamic activations.
+**Outcome:** NO CHANGE
+
+### [40] ORT Profiling Analysis
+**Date:** 2026-03-11
+**Finding:** Profiled decoder_step INT8 at past_seq=350 (6 threads, sequential mode). Total kernel time: 117ms.
+Top ops:
+- Concat: 27ms (23%, 240 calls) — KV cache append + output stacking
+- Split: 21ms (18%, 116 calls) — per-layer KV decomposition
+- MatMulIntegerToFloat: 16ms (14%, 280 calls) — INT8 matmul + dequant fused
+- DynamicQuantizeMatMul: 14ms (12%, 114 calls) — DQL + INT8 matmul fused
+- Expand: 11ms (9%, 116 calls) — GQA attention expansion
+- Total compute (non-memory): ~57ms; memory ops: ~60ms
+
+Key insights:
+1. Concat/Split/Expand at 43% = KV cache memory management dominates
+2. KV cache is [28, 1, 8, past_seq, 128] — appending per step requires copying ~430MB total across 28 layers
+3. Fundamental bottleneck: DRAM bandwidth limited (~11 GB/s for 430MB KV data at step 25)
+4. 113 DynamicQuantizeLinear calls per step × 25 steps = 2825 calls total
+
+**Notes:** The 57 attention-score FP32 MatMuls (Q×K^T, scores×V) cannot be INT8 quantized as they have no static weights.
+
+### [41] Per-layer KV cache decoder export
+**Date:** 2026-03-11
+**Idea:** Eliminate Concat/Split overhead (43% of decoder step) by exporting decoder with per-layer KV inputs (past_key_0...past_key_27) instead of stacked [28, batch, kv, seq, head]. This avoids the internal stack/unstack.
+**Result:** Generated per-layer models (decoder_step.perlayer.onnx, decoder_init.perlayer.onnx) with 58 inputs and 57 outputs. Python ORT benchmark: 94ms/step vs 67ms/step for stacked KV. **SLOWER** due to 7203 nodes vs 2266 in original — the PyTorch tracer for varargs generates many more intermediate nodes (Shape, Cast, Gather, Constant ops).
+**Outcome:** DEGRADED
+
+### [42] MatMulNBits INT8 weight-only quantization (decoder)
+**Date:** 2026-03-11
+**Idea:** MatMulNBits with bits=8 eliminates DynamicQuantizeLinear (113 per step) by keeping activations FP32 and only quantizing weights. No DQL overhead at inference.
+**Result:** ORT 1.22.0 (statically linked in Rust binary) only supports bits=4 for MatMulNBits CPU ("nbits_ == 4 was false"). Python ORT 1.24.3 supports bits=8 but the Rust-linked version doesn't. Cannot test INT8 WOQ.
+**Outcome:** BLOCKED (ORT version limitation)
+
+### [43] MatMulNBits INT4 weight-only quantization (decoder)
+**Date:** 2026-03-11
+**Idea:** INT4 WOQ decoder (bits=4) eliminates DQL, halves weight bandwidth vs INT8. Correct output confirmed via Python sanity check.
+**Result:** 1.976s vs 1.637s baseline — **SLOWER**. INT4 dequantization overhead (dequant INT4 → FP32 then FP32 matmul) exceeds the memory bandwidth savings at this compute density.
+**Outcome:** DEGRADED
+
+### [44] Pre-optimized ONNX loading (decoder_step.int8.opt.onnx)
+**Date:** 2026-03-11
+**Idea:** Save ORT Level3+NchwcTransformer optimized decoder_step to disk, load as pre-optimized file. Avoids re-optimization overhead at load time; may expose different fused ops to ORT.
+**Result:** 1.557s vs ~1.54s — no meaningful change. The runtime kernel execution is identical to loading the unoptimized file with Level3 optimization enabled.
+**Outcome:** NO CHANGE
+
+### [45] Decoder thread count re-sweep (post-profiling)
+**Date:** 2026-03-11
+**Result:** 1 thread→1.94s, 6 threads→1.507s, 8 threads→1.566s, 10 threads→1.567s, 12 threads→1.655s. High variance makes ranking difficult; 6-thread vs 8-10 thread are within noise (±5%). 6 threads confirmed as good default.
+**Outcome:** NO CHANGE
+
+### [46] Parallel execution mode for decoder + encoder
+**Date:** 2026-03-11
+**Idea:** Try with_parallel_execution(true) for both encoder and decoder to allow intra-graph parallelism for Q/K/V projections within each decoder layer.
+**Result:** 1.842s — DEGRADED vs ~1.54s sequential. Layer chain dependency structure means scheduler overhead dominates.
+**Outcome:** DEGRADED
+
+### [47] ORT rc.12 (ORT 1.24.2) upgrade
+**Date:** 2026-03-11
+**Idea:** Python ORT 1.24.3 benchmarks faster (1213ms for full pipeline vs 1540ms with ORT 1.22 Rust). Try upgrading to ort=2.0.0-rc.12 which links ORT 1.24.2.
+**Change:** Cargo.toml: ort=rc.12, ndarray=0.17; fixed breaking API changes (session.inputs → session.inputs(), input.name field → .name() method, meta.custom() returns Option instead of Result).
+**Result:** 2.884s — **MASSIVELY DEGRADED** vs ~1.54s with ORT 1.22.0. The ORT 1.24.2 standard Linux binary appears to have a regression in MLAS INT8 performance.
+**Outcome:** DEGRADED
+**Notes:** Python ORT 1.24.3 (PIP) is faster, but the ORT 1.24.2 binary from pyke.io (used by ort crate) is slower. Reverting to rc.10 + ndarray 0.16.
 
 <!-- Append new experiments below. Format:
 ### [N] Experiment Name
