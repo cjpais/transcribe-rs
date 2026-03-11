@@ -51,13 +51,16 @@ fn test_qwen3_1_7b_transcribe() -> Result<(), Box<dyn std::error::Error>> {
     let mut model = Qwen3Model::load(&model_path, &Quantization::default())?;
     let result = model.transcribe_file(&wav_path, &transcribe_rs::TranscribeOptions::default())?;
 
-    // The 1.7B model uses ". Ask" (sentence break) where 0.6B uses "; ask".
+    // FP32 decoder produces ". Ask" (sentence break); INT8 decoder produces "; ask".
     // Both are acceptable transcriptions of the JFK quote.
-    let expected = "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country.";
-    assert_eq!(
-        result.text.trim(),
-        expected,
-        "\nExpected: '{expected}'\nActual:   '{}'",
+    let acceptable = [
+        "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country.",
+        "And so, my fellow Americans, ask not what your country can do for you; ask what you can do for your country.",
+    ];
+    assert!(
+        acceptable.contains(&result.text.trim()),
+        "\nExpected one of: {:?}\nActual: '{}'",
+        acceptable,
         result.text.trim()
     );
 

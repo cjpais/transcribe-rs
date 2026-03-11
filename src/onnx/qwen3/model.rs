@@ -216,10 +216,6 @@ impl Qwen3AsrModel {
         let embeds_dyn = input_embeds.into_dyn();
         let pos_dyn = position_ids.into_dyn();
 
-        let nl = self.config.decoder.num_layers;
-        let nkv = self.config.decoder.num_key_value_heads;
-        let hd = self.config.decoder.head_dim;
-
         // Prefill: run encoder output + prompt through decoder_init.
         let (mut current_token, mut keys, mut values) = {
             let inputs = ort::inputs![
