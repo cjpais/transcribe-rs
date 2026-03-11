@@ -21,7 +21,7 @@ fn test_qwen3_transcribe() -> Result<(), Box<dyn std::error::Error>> {
 
     let result = model.transcribe_file(&wav_path, &transcribe_rs::TranscribeOptions::default())?;
 
-    // INT8 split decoder produces comma; FP32/unified produces semicolon.
+    // INT8 produces comma; FP32 produces semicolon.
     // Both are acceptable transcriptions of the JFK quote.
     let acceptable = [
         "And so, my fellow Americans, ask not what your country can do for you; ask what you can do for your country.",
