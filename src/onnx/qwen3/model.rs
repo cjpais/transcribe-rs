@@ -13,23 +13,10 @@ use super::mel::{self, log_mel_spectrogram};
 use super::prompt::{build_prompt_ids, get_audio_pad_range, get_feat_extract_output_lengths};
 use super::tokenizer::Qwen3Tokenizer;
 
-/// Decoder session layout.
-///
-/// Unified (preferred): a single `decoder.onnx` handles both prefill (past_seq=0)
-/// and autoregressive decode steps. Weights are stored once, halving decoder artifact size.
-///
-/// Split (legacy): separate `decoder_init.onnx` (prefill) and `decoder_step.onnx` (step).
-/// Supported for backward compatibility with existing exported model directories.
-enum DecoderSessions {
-    /// Single session — handles both prefill (empty past KV) and decode steps.
-    Unified(Session),
-    /// Separate sessions for prefill and decode.
-    Split { init: Session, step: Session },
-}
-
 pub struct Qwen3AsrModel {
     encoder: Session,
-    decoder: DecoderSessions,
+    decoder_init: Session,
+    decoder_step: Session,
     embed_tokens: Array2<f32>,
     config: Qwen3AsrConfig,
     tokenizer: Qwen3Tokenizer,
@@ -106,23 +93,14 @@ impl Qwen3AsrModel {
         log::info!("Loading Qwen3-ASR encoder from {:?}", encoder_path);
         let encoder = session::create_session_with_threads(&encoder_path, encoder_threads)?;
 
-        // Prefer split decoder (decoder_init.onnx + decoder_step.onnx) — decoder_step is smaller,
-        // enabling ORT to apply more targeted optimizations for single-token autoregressive steps.
-        // Fall back to unified (decoder.onnx) if split files are absent.
-        //
-        // Quantization selection: when the caller requests FP32, auto-detect INT8 decoders.
-        // Preference order: INT8 split > INT8 unified > FP32 split > FP32 unified.
+        // INT8 decoder auto-detection: when FP32 is requested, prefer INT8 if available.
         // INT8 weight quantization gives ~2x inference speedup with negligible quality loss
         // for ASR on modern CPUs (VNNI/AVX-512VNNI).
         let decoder_quantization = if *quantization == Quantization::FP32 {
             let int8_init = session::resolve_model_path(model_dir, "decoder_init", &Quantization::Int8);
             let int8_step = session::resolve_model_path(model_dir, "decoder_step", &Quantization::Int8);
-            let int8_unified = session::resolve_model_path(model_dir, "decoder", &Quantization::Int8);
             if int8_init.exists() && int8_step.exists() {
-                log::info!("INT8 split decoder found; using for faster inference");
-                &Quantization::Int8
-            } else if int8_unified.exists() {
-                log::info!("INT8 unified decoder found; using for faster inference");
+                log::info!("INT8 decoder found; using for faster inference");
                 &Quantization::Int8
             } else {
                 quantization
@@ -134,20 +112,16 @@ impl Qwen3AsrModel {
             session::resolve_model_path(model_dir, "decoder_init", decoder_quantization);
         let decoder_step_path =
             session::resolve_model_path(model_dir, "decoder_step", decoder_quantization);
-        let unified_path = session::resolve_model_path(model_dir, "decoder", decoder_quantization);
-        let decoder = if decoder_init_path.exists() && decoder_step_path.exists() {
-            log::info!("Loading Qwen3-ASR split decoder from {:?} + {:?}",
-                decoder_init_path, decoder_step_path);
-            DecoderSessions::Split {
-                init: session::create_session_with_threads(&decoder_init_path, decoder_threads)?,
-                step: session::create_session_with_threads(&decoder_step_path, decoder_threads)?,
-            }
-        } else if unified_path.exists() {
-            log::info!("Loading Qwen3-ASR unified decoder from {:?}", unified_path);
-            DecoderSessions::Unified(session::create_session_with_threads(&unified_path, decoder_threads)?)
-        } else {
+        if !decoder_init_path.exists() {
             return Err(TranscribeError::ModelNotFound(decoder_init_path));
-        };
+        }
+        if !decoder_step_path.exists() {
+            return Err(TranscribeError::ModelNotFound(decoder_step_path));
+        }
+        log::info!("Loading Qwen3-ASR decoder from {:?} + {:?}",
+            decoder_init_path, decoder_step_path);
+        let decoder_init = session::create_session_with_threads(&decoder_init_path, decoder_threads)?;
+        let decoder_step = session::create_session_with_threads(&decoder_step_path, decoder_threads)?;
 
         let embed_path = model_dir.join("embed_tokens.bin");
         if !embed_path.exists() {
@@ -166,7 +140,8 @@ impl Qwen3AsrModel {
 
         Ok(Self {
             encoder,
-            decoder,
+            decoder_init,
+            decoder_step,
             embed_tokens,
             config,
             tokenizer,
@@ -245,62 +220,37 @@ impl Qwen3AsrModel {
         let nkv = self.config.decoder.num_key_value_heads;
         let hd = self.config.decoder.head_dim;
 
-        // Prefill: run encoder output + prompt through the decoder.
-        // Unified decoder accepts empty past KV (past_seq=0) for the prefill pass.
-        // Split decoder_init takes only input_embeds + position_ids.
-        //
-        // The block scope ensures `init_outputs` (which borrows from the Session inside
-        // `self.decoder`) is dropped before the step loop needs to borrow `self.decoder`
-        // again, satisfying the borrow checker.
+        // Prefill: run encoder output + prompt through decoder_init.
         let (mut current_token, mut keys, mut values) = {
-            let (mut init_outputs, prefill_label) = match &mut self.decoder {
-                DecoderSessions::Unified(s) => {
-                    let empty_keys =
-                        ArrayD::<f32>::zeros(IxDyn(&[nl, 1, nkv, 0, hd]));
-                    let empty_values =
-                        ArrayD::<f32>::zeros(IxDyn(&[nl, 1, nkv, 0, hd]));
-                    let inputs = ort::inputs![
-                        "input_embeds"  => TensorRef::from_array_view(embeds_dyn.view())?,
-                        "position_ids"  => TensorRef::from_array_view(pos_dyn.view())?,
-                        "past_keys"     => TensorRef::from_array_view(empty_keys.view())?,
-                        "past_values"   => TensorRef::from_array_view(empty_values.view())?,
-                    ];
-                    (s.run(inputs)?, "decoder")
-                }
-                DecoderSessions::Split { init, .. } => {
-                    let inputs = ort::inputs![
-                        "input_embeds"  => TensorRef::from_array_view(embeds_dyn.view())?,
-                        "position_ids"  => TensorRef::from_array_view(pos_dyn.view())?,
-                    ];
-                    (init.run(inputs)?, "decoder_init")
-                }
-            };
+            let inputs = ort::inputs![
+                "input_embeds"  => TensorRef::from_array_view(embeds_dyn.view())?,
+                "position_ids"  => TensorRef::from_array_view(pos_dyn.view())?,
+            ];
+            let mut init_outputs = self.decoder_init.run(inputs)?;
 
             let logits = init_outputs
                 .get("logits")
                 .ok_or_else(|| TranscribeError::Inference(
-                    format!("Missing 'logits' from {prefill_label}")
+                    "Missing 'logits' from decoder_init".into()
                 ))?
                 .try_extract_array::<f32>()?;
             let last_pos = logits.shape()[1].checked_sub(1).ok_or_else(|| {
                 TranscribeError::Inference(
-                    format!("{prefill_label} returned empty logits sequence")
+                    "decoder_init returned empty logits sequence".into()
                 )
             })?;
             let token = argmax_slice(&logits, last_pos)?;
-            // Take KV cache by value from outputs — avoids .to_owned() clone of the full KV buffer.
-            // logits borrow ends here (before the remove calls).
+            // Take KV cache by value — avoids .to_owned() clone of the full KV buffer.
             drop(logits);
             let keys: DynValue = init_outputs.remove("present_keys")
                 .ok_or_else(|| TranscribeError::Inference(
-                    format!("Missing 'present_keys' from {prefill_label}")
+                    "Missing 'present_keys' from decoder_init".into()
                 ))?;
             let values: DynValue = init_outputs.remove("present_values")
                 .ok_or_else(|| TranscribeError::Inference(
-                    format!("Missing 'present_values' from {prefill_label}")
+                    "Missing 'present_values' from decoder_init".into()
                 ))?;
             (token, keys, values)
-            // init_outputs drops here, releasing the borrow on self.decoder.
         };
 
         let mut output_tokens = vec![current_token];
@@ -331,7 +281,6 @@ impl Qwen3AsrModel {
 
             let step_pos = ArrayD::<i64>::from_shape_vec(IxDyn(&[1, 1]), vec![pos])?;
 
-            // Both unified and split step sessions share the same KV-cache interface.
             // Pass KV cache by value: DynValue implements Into<SessionInputValue>,
             // so ORT can reference the memory directly without an extra ndarray copy.
             let step_inputs = ort::inputs![
@@ -340,10 +289,7 @@ impl Qwen3AsrModel {
                 "past_keys"     => keys,
                 "past_values"   => values,
             ];
-            let mut step_outputs = match &mut self.decoder {
-                DecoderSessions::Unified(s) => s.run(step_inputs)?,
-                DecoderSessions::Split { step, .. } => step.run(step_inputs)?,
-            };
+            let mut step_outputs = self.decoder_step.run(step_inputs)?;
 
             let step_logits = step_outputs
                 .get("logits")
