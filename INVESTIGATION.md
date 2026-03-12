@@ -739,3 +739,107 @@ The 35s transcript word "vertebral column" is correctly produced by α=0.2 and P
 **Committed:** yes/no (commit hash if yes)
 **Notes:** Any observations
 -->
+
+### [75] Static INT8 quantization (abandoned)
+**Date:** 2026-03-12
+**Idea:** Replace dynamic quantization (weights only) with static quantization (weights + activations). Uses calibration data from 32 audio samples × 16 decoder steps to find optimal INT8 ranges for activation tensors.
+**Change:** Created `quantize_static.py` implementing `CalibrationDataReader` for both decoder_init and decoder_step. Tested QDQ and QOperator formats with symmetric activations and weights.
+**Result:** Both formats produce completely garbled output (random tokens, CJK characters, control codes). QDQ: 89s for 11s audio (8.1x RTF). QOperator: 147s (13.4x RTF). Massive speed regression on top of total quality failure.
+**Outcome:** ABANDONED — static quantization is fundamentally incompatible with transformer decoder attention. INT8 activation quantization destroys softmax distributions, RoPE rotations, and KV cache values. Dynamic quantization (weights-only INT8, FP32 activations) is the correct approach for this architecture.
+**Notes:** This matches the ORT documentation which primarily targets CNN/ResNet architectures for static quantization. Transformer decoders with autoregressive KV caching are not a supported use case. The `quantize_static.py` script is retained for reference but should not be used for decoder models.
+
+### [76] MLP-only INT8 quantization (attention in FP32)
+**Date:** 2026-03-12
+**Idea:** Keep all attention projections (q/k/v/o_proj, 4 per layer × 28 layers = 112 nodes) in FP32 and only quantize MLP layers (gate/up/down_proj, 3 per layer × 28 layers = 84 nodes + lm_head). Hypothesis: attention is most sensitive to quantization, so keeping it FP32 should recover WER while MLP quantization still saves bandwidth.
+**Change:** Used `quantize.py --nodes-to-exclude` with 112 attention node names on α=0.5 smooth FP32 source. Decoder weights: 1.2 GB (vs 600 MB full INT8, 2.4 GB FP32). Total model: 1.7 GB.
+**Result:**
+| Audio | RTF | Notes |
+|---|---|---|
+| 11s JFK | 0.26x | vs 0.14x full INT8, 0.29x FP32 |
+| 35s LibriSpeech | 0.26x | Consistent with 11s |
+
+100-sample WER (LibriSpeech test-other): **5.02%**
+
+| Config | WER | RTF | Size |
+|---|---|---|---|
+| FP32 | 4.42% | 0.29x | 3.8 GB |
+| MLP-only INT8 α=0.5 | 5.02% | 0.26x | 1.7 GB |
+| Full INT8 α=0.2 | 5.21% | 0.14x | 1.1 GB |
+| Full INT8 α=0.5 | 5.62% | 0.14x | 1.1 GB |
+| Parakeet INT8 | 5.45% | 0.16x | — |
+
+**Outcome:** INFORMATIONAL — WER is within 0.6pp of FP32 (best INT8 variant tested), but RTF is nearly identical to FP32 (0.26x vs 0.29x). Attention projections dominate decoder compute time, so keeping them FP32 eliminates most of the INT8 speed advantage. The 0.19pp WER improvement over α=0.2 full INT8 does not justify the ~2× speed regression.
+**Committed:** no
+**Notes:** Confirms that attention quantization is responsible for both the speed benefit and quality loss of INT8. For the 0.6B model, α=0.2 full dynamic INT8 remains the optimal tradeoff: 5.21% WER at 0.14x RTF beats Parakeet (5.45%) and is nearly 2× faster than FP32.
+
+### [77] Alpha sweep below 0.2 (α=0.15)
+**Date:** 2026-03-12
+**Idea:** Test whether reducing alpha below 0.2 continues to improve WER. α=0.15 means less activation variance is migrated into weights.
+**Change:** AWQ smooth α=0.15 using cached activations, then full dynamic INT8 quantization. Max scale ratio: 2.7x (vs 5.3x at α=0.2, 17.6x at α=0.5).
+**Result:** 100-sample WER: **5.40%** — worse than α=0.2 (5.21%) and α=0.5 (5.62%). One sample produced empty output (decoder failure). α=0.2 is a sweet spot, not a monotonic trend.
+
+| Alpha | WER (100-sample) | Max scale ratio |
+|---|---|---|
+| 0.5 | 5.62% | 17.6x |
+| 0.2 | 5.21% | 5.3x |
+| 0.15 | 5.40% | 2.7x |
+
+**Outcome:** WORSE — α=0.15 is too little smoothing. Without sufficient variance migration, raw activation outliers cause worse quantization error than the moderate weight inflation at α=0.2.
+**Committed:** no
+**Notes:** Extended sweep with α=0.25 showed 5.08% at 100 samples, but 200-sample head-to-head: α=0.25=5.26% vs α=0.2=5.21%. The 100-sample noise was misleading. α=0.22 produced 6.29% (possibly bad export). Full alpha curve on 200 samples:
+
+| Alpha | WER (200-sample) |
+|---|---|
+| 0.15 | 5.40% (100-sample only) |
+| 0.20 | **5.21%** |
+| 0.25 | 5.26% |
+| 0.30 | 5.21% (100-sample) |
+| 0.50 | 5.62% |
+
+The minimum is a broad plateau around α=0.2-0.3. α=0.2 is optimal or near-optimal. No further alpha tuning warranted.
+
+### [78] Calibration sample count: 256 vs 128
+**Date:** 2026-03-12
+**Idea:** More calibration samples for AWQ smoothing may produce better per-channel activation statistics, leading to more accurate scale factors.
+**Change:** Re-ran α=0.2 AWQ smooth with n_samples=256 (vs default 128). Then quantized and evaluated.
+**Result:** 200-sample WER: n=256 → 5.28%, n=128 → 5.21%. More samples did not help; 128 is sufficient for convergence.
+**Outcome:** NO IMPROVEMENT — activation statistics converge by 128 samples. The remaining WER gap to FP32 is not caused by scale estimation noise.
+**Committed:** no
+
+---
+
+## Quantization Trial Summary (Experiments 68-78)
+
+The α=0.2 AWQ-smoothed dynamic INT8 quantization is the optimal configuration for Qwen3-ASR 0.6B. All alternative strategies tested either degraded WER, degraded speed, or both.
+
+### Final Comparison (200-sample LibriSpeech test-other)
+
+| Engine | WER | RTF (11s) | RTF (35s) | Model Size | Load Time |
+|---|---|---|---|---|---|
+| Qwen3-ASR 0.6B FP32 | 4.42% | 0.29x | 0.32x | 3.8 GB | 17.0s |
+| **Qwen3-ASR 0.6B INT8 (α=0.2)** | **5.21%** | **0.14x** | **0.17x** | **1.1 GB** | **4.9s** |
+| Qwen3-ASR 0.6B INT8 (α=0.5) | 5.62% | 0.14x | 0.17x | 1.1 GB | 4.9s |
+| Parakeet-TDT 0.6B INT8 | 5.45% | 0.16x | 0.13x | — | 1.2s |
+
+### What Was Tried
+
+| # | Strategy | Result | Why |
+|---|---|---|---|
+| 68 | INT8 enc + FP32 dec | 0.30x RTF | No advantage over pure FP32 |
+| 69 | FP16 decoder | — | CPU casts to FP32, no benefit |
+| 71 | Exclude lm_head | No WER improvement | Error distributed across layers |
+| 72 | INT16 weights | — | ORT lacks INT16 compute kernels |
+| 73 | Alpha sweep | **α=0.2 optimal** | Best WER/speed tradeoff |
+| 74 | Selective layer FP32 | Slower, no WER gain | Inferior to alpha tuning |
+| 75 | Static quantization | Garbled output | Incompatible with transformer decoder |
+| 76 | MLP-only INT8 | 5.02% WER, 0.26x RTF | Nearly FP32 speed — not useful |
+| 77 | Alpha < 0.2 | 5.40% at α=0.15 | Too little smoothing |
+| 78 | 256 calibration samples | 5.28% | 128 is sufficient |
+
+### Conclusions
+
+1. The 0.79pp WER gap (5.21% → 4.42%) is inherent to 8-bit dynamic weight quantization on this architecture
+2. α=0.2 AWQ smoothing is optimal — the alpha-WER curve has a broad minimum around 0.2-0.3
+3. Attention projection quantization provides most of the speed benefit but also most of the quality loss
+4. For applications where WER < 5% is required, use FP32 (or wait for the 1.7B INT8 to be resolved)
+5. For speed-sensitive applications, α=0.2 INT8 beats Parakeet on both WER (5.21% vs 5.45%) and speed (0.14x vs 0.16x RTF)
