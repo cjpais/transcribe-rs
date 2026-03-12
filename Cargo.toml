@@ -12,7 +12,7 @@ default = []
 # Shared audio feature extraction (mel spectrogram, CTC decode, etc.)
 audio-features = ["dep:ndarray", "dep:rustfft"]
 
-# ONNX-based models (SenseVoice, GigaAM, Parakeet, Moonshine)
+# ONNX-based models (SenseVoice, GigaAM, Parakeet, Moonshine, Canary)
 onnx = ["audio-features", "dep:ort", "dep:base64", "dep:regex", "dep:once_cell"]
 
 # Whisper via whisper.cpp
@@ -92,6 +92,10 @@ name = "sense_voice"
 required-features = ["onnx"]
 
 [[example]]
+name = "canary"
+required-features = ["onnx"]
+
+[[example]]
 name = "whisperfile"
 required-features = ["whisperfile"]
 
@@ -121,6 +125,10 @@ required-features = ["onnx"]
 
 [[test]]
 name = "sense_voice"
+required-features = ["onnx"]
+
+[[test]]
+name = "canary"
 required-features = ["onnx"]
 
 [[test]]

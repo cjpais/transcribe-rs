@@ -19,7 +19,8 @@ pub enum Quantization {
     Int8,
 }
 
-pub mod sense_voice;
+pub mod canary;
 pub mod gigaam;
-pub mod parakeet;
 pub mod moonshine;
+pub mod parakeet;
+pub mod sense_voice;
