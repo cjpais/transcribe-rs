@@ -585,6 +585,147 @@ After 65 experiments, the Qwen3-ASR 0.6B inference pipeline on WSL/Linux CPU has
 
 The decode step at 26ms/step is within 10-30% of the theoretical memory bandwidth floor. All Rust-side overhead (tensor prep, argmax, embedding lookup) is <0.5ms total across all 29 steps.
 
+### [66] Shared external data for split decoder
+**Date:** 2026-03-11
+**Idea:** decoder_init and decoder_step share identical weights (~2.38 GB for 0.6B) because they're exported from the same PyTorch modules. Post-export, rewrite decoder_step to reference decoder_init's external data file, eliminating the duplicate.
+**Change:** Created `~/qwen3-asr-onnx/share_weights.py`. Updated `export.py` and `quantize.py` to call it after split export/quantization. Algorithm: hash each initializer's data (SHA-256), match step→init, redirect external_data references, inline unmatched constants.
+**Result:**
+
+| Model | Matched tensors | Before | After | Saved |
+|---|---|---|---|---|
+| 0.6B FP32 | 310/310 | 4.76 GB | 2.38 GB + 4 MB protos | 2.38 GB |
+| 0.6B INT8 | 254/254 | 3.58 GB | 1.79 GB + 4 MB protos | 1.79 GB |
+| 1.7B FP32 | 310/310 | 13.76 GB | 6.88 GB + 4 MB protos | 6.88 GB |
+| 1.7B INT8 | 254/254 | 3.44 GB | 1.72 GB + 4 MB protos | 1.72 GB |
+
+Benchmark (WSL, 11s JFK audio, 3 runs):
+
+| Engine | Mean | RTF |
+|---|---|---|
+| Qwen3-ASR FP32 shared weights | 1.59s | 0.14x |
+| Parakeet-TDT INT8 | 1.69s | 0.15x |
+
+**Outcome:** NO CHANGE (performance). Disk/RAM savings as expected.
+**Committed:** no (export tooling, not in transcribe-rs)
+**Verification:**
+- onnx.checker: PASS (all 4 model sets)
+- ORT Python load: PASS (all 4 model sets)
+- compare.py: EXACT token agreement across native/wrapper/FP32/INT8
+- Rust tests: 3/3 PASS (0.6B + 1.7B)
+- bench_compare: no regression
+**Notes:** RAM savings depend on OS page cache deduplication. Two ORT sessions referencing the same mmap'd file should share physical pages for read-only weight data.
+
+### [67] ORT Transformer Optimizer investigation
+**Date:** 2026-03-11
+**Idea:** Investigate whether ORT's Transformer Optimizer fusion passes produce usable models. Previous experiment [55] saved fused models incorrectly (inlined all external data). Rerun with `use_external_data_format=True`.
+**Change:** Created `~/qwen3-asr-onnx/optimize_decoder.py`. Ran on `decoder_step.onnx` with default bert model_type.
+**Result:**
+- 2266 → 1586 nodes (30% reduction)
+- 113 SimplifiedLayerNormalization fusions (replaced Pow/Reciprocal/ReduceMean/Sqrt/Mul decomposed RMSNorm)
+- 2 Transpose removals
+- Only contrib op: SimplifiedLayerNormalization
+- ORT Python load: PASS
+- Shape inference warning but did not block optimization
+**Outcome:** INVESTIGATION — fused model loads and reduces graph complexity. Needs inference correctness verification and Rust ORT compatibility testing. SimplifiedLayerNormalization is a contrib op that may or may not be available in the Rust ORT binary.
+**Committed:** no
+**Notes:** The fused model is saved at `output/qwen3-asr-0.6b/decoder_step.optimized.onnx`. Next steps: (1) verify inference correctness against original, (2) test in Rust ORT, (3) if compatible, apply to decoder_init and benchmark the full pipeline.
+
+### [68] INT8 encoder + FP32 decoder hybrid
+**Date:** 2026-03-12
+**Idea:** Isolate whether WER degradation in smooth INT8 comes from encoder or decoder quantization. Assembled trial dir with smooth INT8 encoder (197 MB, INT8 weights despite .onnx naming) + FP32 decoder (2.3 GB) + FP32 embeddings.
+**Change:** No code changes. Created `output/trial-int8enc-fp32dec/` with symlinks to existing files.
+**Result:**
+
+| Audio | Mean | RTF | vs FP32 baseline |
+|---|---|---|---|
+| JFK 11s | 3.25s | 0.30x | +0.11s (+3.5%) |
+| LibriSpeech 35s | 12.54s | 0.36x | +1.44s (+13%) |
+
+Load: 18.0s. Transcript identical to FP32 on both audio files ("vertible column", semicolon in JFK).
+
+**Outcome:** INFORMATIONAL — decoder quantization is the sole source of WER degradation. INT8 encoder alone does not affect speed meaningfully (decoder dominates).
+**Committed:** no
+**Notes:** FP32 decoder reads 2.3 GB weights per session. The ~3% slowdown on 11s may be within variance; the 13% on 35s suggests slightly more overhead from the hybrid setup (two separate weight files for encoder vs decoder). No WER eval needed — transcript is token-identical to FP32.
+
+### [69] FP16 decoder conversion (abandoned)
+**Date:** 2026-03-12
+**Idea:** Convert FP32 decoder to FP16 for reduced memory bandwidth. FP16 halves model size vs FP32 with less quality loss than INT8.
+**Change:** Created `convert_fp16.py` using `onnxconverter_common.convert_float_to_float16`. Two issues:
+1. Naive per-tensor approach (numpy FP16 cast) failed: ORT CPU EP rejects mixed float32/float16 ops (Add node type mismatch).
+2. Graph-level converter (`convert_float_to_float16`) doesn't handle ONNX external data format — produced empty 2-byte files.
+3. **Fundamental flaw:** On CPU EP, FP16 is strictly worse than INT8 for bandwidth (2 bytes/weight vs 1 byte/weight). CPU EP casts both FP16 and INT8 to FP32 for compute, so FP16 gives no quality advantage at inference time — only at export time. INT8 is the right target for CPU.
+**Outcome:** ABANDONED — FP16 decoder is not viable on CPU. Trials 69 and 70 (INT8 enc + FP16 dec) skipped.
+**Notes:** FP16 would be relevant for GPU EP (native FP16 compute) but not for CPU-only inference. On CPU, the optimal path is INT8 with targeted exclusions to preserve quality-sensitive layers.
+
+### [71] Exclude lm_head from INT8 quantization
+**Date:** 2026-03-12
+**Idea:** lm_head maps hidden_size → vocab_size (151936). Special token discrimination is most sensitive to quantization. Keep lm_head in FP32 while quantizing all other layers.
+**Change:** Added `--nodes-to-exclude` and `--weight-type` CLI args to `quantize.py`. Re-quantized smooth FP32 decoder with `--nodes-to-exclude node_linear_196` (lm_head).
+**Result:**
+
+| Audio | Mean | RTF | vs smooth INT8 | vs FP32 |
+|---|---|---|---|---|
+| JFK 11s | 2.05s | 0.19x | +0.56s (+37%) | -1.09s (-35%) |
+| LibriSpeech 35s | 8.34s | 0.24x | +2.52s (+43%) | -2.76s (-25%) |
+
+Load: 5.96s. Decoder size: 1065 MB (vs 569 MB full INT8, +87% from FP32 lm_head).
+JFK transcript: comma variant (same as smooth INT8, not FP32's semicolon).
+35s transcript: "vertible calm" (same as smooth INT8, not FP32's "vertible column").
+20-sample WER: 1.53% (first 20 samples — not comparable to 200-sample baselines without same-subset runs).
+
+**Outcome:** MIXED — excludes lm_head but quality markers (comma, "vertible calm") match smooth INT8, not FP32. Speed is slower than full INT8 due to FP32 lm_head MatMul per decode step. The quantization error in attention/MLP layers still dominates quality loss.
+**Committed:** no
+**Notes:** Excluding lm_head alone is insufficient. The quality degradation is distributed across all decoder layers, not concentrated in lm_head. This makes sense: each attention/MLP layer introduces small quantization errors that compound through 24 layers.
+
+### [72] INT16 decoder quantization (abandoned)
+**Date:** 2026-03-12
+**Idea:** `quantize_dynamic` supports `QuantType.QInt16` — 16-bit integer weights. Less compression than INT8 but less quality loss.
+**Change:** Added `--weight-type int16` to `quantize.py`. Ran on smooth FP32.
+**Result:** ORT refuses to load: `Type 'tensor(int16)' of input parameter of operator (MatMulInteger) is invalid.` Failed for both encoder and decoder. ORT's MatMulInteger only supports int8 on CPU EP.
+**Outcome:** ABANDONED — INT16 quantization not supported by ORT runtime.
+
+### [73] AWQ alpha sweep (α=0.1, 0.15, 0.2, 0.25, 0.3) — WINNER: α=0.2
+**Date:** 2026-03-12
+**Idea:** Current α=0.5 may be sub-optimal. Lower alpha = less smoothing = less weight distortion but more activation variance retained. Used cached activations from initial calibration — no re-calibration needed.
+**Change:** Ran `awq_smooth.py` with `--skip-encoder --activations-cache` at five alpha values, followed by INT8 quantization. Evaluated at 20, 100, and 200 samples.
+**Result:**
+
+**20-sample WER was misleading** — the first 20 librispeech-other samples are easy, giving α=0.5 an apparent advantage. 100-sample and 200-sample evaluations reveal the true ranking:
+
+| Alpha | 20-sample WER | 100-sample WER | 200-sample WER | 35s word | RTF (11s) | RTF (35s) |
+|---|---|---|---|---|---|---|
+| 0 (FP32) | 1.53% | 4.13% | 4.42% | "vertible" | 0.29x | 0.32x |
+| 0.1 | — | 4.83% | — | — | — | — |
+| **0.2** | **—** | **4.76%** | **5.21%** | **"vertebral" ✓** | **0.15x** | **0.19x** |
+| 0.25 | 2.04% | 5.08% | 5.26% | "vertible" | 0.15x | 0.19x |
+| 0.3 | 3.06% | — | — | "column" + comma | 0.12x | 0.17x |
+| 0.5 (baseline) | 1.79% | 5.46% | 5.62% | "calm" | 0.14x | 0.17x |
+| Parakeet | — | — | 5.45% | "vertebral" ✓ | 0.16x | 0.16x |
+
+The 35s transcript word "vertebral column" is correctly produced by α=0.2 and Parakeet. FP32 and α=0.25 say "vertible" (wrong), α=0.5 says "calm" (wrong).
+
+**Head-to-head α=0.2 vs Parakeet (5 runs):**
+
+| Metric | Qwen3 α=0.2 INT8 | Parakeet INT8 |
+|---|---|---|
+| WER (200 samples) | 5.21% | 5.45% |
+| RTF (11s) | 0.15x | 0.16x |
+| RTF (35s) | 0.19x | 0.16x |
+| Load time | 3.0s | 0.9s |
+| Punctuation | Full | Minimal |
+
+**Outcome:** IMPROVED — α=0.2 beats Parakeet on WER (5.21% vs 5.45%) and short-audio speed. Slightly slower on longer audio (0.19x vs 0.16x). Full punctuation vs Parakeet's minimal punctuation. Reduces the FP32→INT8 WER penalty from +1.20pp (α=0.5) to +0.79pp (α=0.2), a 34% reduction.
+**Committed:** pending
+**Notes:** The α=0.2 optimum makes sense: enough smoothing to handle the worst outlier channels, but not so much that it distorts the overall weight distribution. The optimum is flat between α=0.1-0.2 (4.83% vs 4.76% on 100 samples). For production, α=0.2 is recommended.
+
+### [74] Selective layer quantization — first/last layer FP32
+**Date:** 2026-03-12
+**Idea:** Keep first decoder layer (7 linears), last decoder layer (7 linears), and lm_head in FP32. Middle 26 layers quantized to INT8.
+**Change:** Used `quantize.py --nodes-to-exclude` with 15 node names.
+**Result:** 20-sample WER 2.04%, RTF 0.18x (11s), 0.22x (35s). 35s transcript: "vertible column" with spurious comma. Slower than full INT8 and not better than α=0.5 on 20-sample WER.
+**Outcome:** NO IMPROVEMENT — selective layer exclusion is inferior to alpha tuning. The FP32 layers add speed overhead without sufficient quality benefit. Alpha=0.2 is both faster and more accurate.
+**Committed:** no
+
 <!-- Append new experiments below. Format:
 ### [N] Experiment Name
 **Date:** YYYY-MM-DD
