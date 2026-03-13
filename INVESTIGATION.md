@@ -905,3 +905,54 @@ The α=0.2 AWQ-smoothed dynamic INT8 quantization is the optimal configuration f
 4. Load time of ~8.7s (cold) is high; subsequent loads benefit from OS file cache
 5. The 1.7B INT8 at 9.04% WER offers better quality than Parakeet (5.45%) only in the sense that it has full punctuation and sentence structure, but at a large WER cost vs Qwen3 0.6B INT8 (5.21%)
 6. 1.7B INT8 is not recommended for production until the quantization penalty can be reduced further
+
+---
+
+## MatMulNBits (int4, block_size=64) Trials — Experiments 85-86
+
+ORT's `MatMulNBitsQuantizer` with RTN algorithm applies per-group weight-only int4 quantization. Each block of 64 weights shares a float16 scale and zero-point. This is the same quantization granularity as MLX's 8-bit and GPTQ's int4, and operates directly on the existing FP32 ONNX export without calibration data.
+
+Tool: `quantize_nbits.py` in `~/qwen3-asr-onnx/`
+
+### [85] 0.6B int4 MatMulNBits (block_size=64, RTN)
+**Date:** 2026-03-13
+**Result:**
+| Metric | Value |
+|---|---|
+| WER (200-sample) | 5.28% |
+| RTF (11s) | 0.26x |
+| Model size | 2.0 GB |
+
+**Outcome:** WER matches AWQ INT8 α=0.2 (5.21%) within noise. **Speed is 2× slower** (0.26x vs 0.14x). ORT's x86 CPU MatMulNBits kernel dequantizes weights to fp32 before each matmul rather than computing in int4 — eliminating the memory bandwidth benefit. For the 0.6B, AWQ INT8 remains the better choice.
+
+### [86] 1.7B int4 MatMulNBits (block_size=64, RTN) — BEST 1.7B RESULT
+**Date:** 2026-03-13
+**Result:**
+| Metric | Value |
+|---|---|
+| WER (200-sample) | **4.33%** |
+| RTF (11s) | 0.56x |
+| RTF (35s) | 0.65x |
+| Model size | 4.3 GB |
+
+**Outcome:** WER is dramatically better than AWQ INT8 α=0.2 (9.04% → 4.33%, a 4.71pp improvement). Only 0.54pp behind FP32 (3.79%). Per-group quantization (64 weights/block with independent float16 scales) handles the 1.7B's larger activation outliers far better than per-tensor dynamic INT8.
+
+Speed is slower than AWQ INT8 (0.56x vs 0.47x) due to the fp32 dequantize fallback, but the quality tradeoff is strongly positive: **int4 MatMulNBits is the recommended quantization for 1.7B**.
+
+### Full Comparison
+
+| Engine | WER (200-sample) | RTF (11s) | RTF (35s) | Size |
+|---|---|---|---|---|
+| 0.6B FP32 | 4.42% | 0.29x | 0.32x | 3.8 GB |
+| **0.6B AWQ INT8 α=0.2** | **5.21%** | **0.14x** | **0.17x** | **1.1 GB** |
+| 0.6B int4 MatMulNBits | 5.28% | 0.26x | — | 2.0 GB |
+| 1.7B FP32 | 3.79% | ~0.7x | ~0.7x | 8.8 GB |
+| **1.7B int4 MatMulNBits** | **4.33%** | **0.56x** | **0.65x** | **4.3 GB** |
+| 1.7B AWQ INT8 α=0.2 | 9.04% | 0.47x | 0.49x | 2.6 GB |
+| Parakeet-TDT INT8 | 5.45% | 0.16x | 0.17x | — |
+
+### Notes
+- ORT's x86 CPU MatMulNBits kernel does not compute in int4 — it dequantizes to fp32 first. Speed benefit requires a GPU EP or ARM64 with optimized kernel.
+- For 0.6B on x86 CPU, AWQ INT8 α=0.2 remains the best option (2× faster, similar WER).
+- For 1.7B on x86 CPU, int4 MatMulNBits is the best option (4.33% vs 9.04% WER at only marginally more compute than AWQ INT8).
+- The 1.7B int4 model (4.33% WER) beats the 0.6B FP32 (4.42%) — so for quality-sensitive use cases, 1.7B int4 is the highest-quality option below 1.7B FP32.
