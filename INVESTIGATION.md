@@ -1010,40 +1010,48 @@ The 35s RTF of 0.21x is slower than AWQ INT8's 0.17x (longer sequences show more
 **Committed:** no
 **Notes:** Model deleted. For 0.6B int4, plain RTN + accuracy_level=4 is the best configuration: do not smooth before int4 quantization.
 
-### [89] GPTQ int4 on 1.7B decoder
-**Date:**
-**Idea:** GPTQ minimises layer-wise weight reconstruction error using calibration data via Hessian-based optimal perturbation. On LLMs it typically outperforms RTN int4 by 0.3–0.8 pp WER at the same bit-width. Our 1.7B RTN int4 is at 4.33%; GPTQ could push closer to FP32 (3.79%).
-**Change:** New script `collect_gptq_calib.py` collects decoder_init and decoder_step inputs from LibriSpeech audio. Updated `quantize_nbits.py` with `--algo gptq` and `--calib-data` args. GPTQ quantizes decoder_init and decoder_step separately.
-**Method:**
-```bash
-# Step 1: collect calibration data
-uv run python collect_gptq_calib.py \
-  --model output/qwen3-asr-1.7b \
-  --audio-dir tests/fixtures \
-  --n-samples 32 --decoder-steps 8 \
-  --output calibration_cache/1.7b_gptq_calib.pkl \
-  --target decoder_init
-# Step 2: GPTQ quantize decoder_init
-uv run python quantize_nbits.py \
-  --input output/qwen3-asr-1.7b \
-  --output output/trial-1.7b-gptq-int4 \
-  --bits 4 --block-size 64 \
-  --algo gptq \
-  --calib-data calibration_cache/1.7b_gptq_calib.pkl \
-  --decoders decoder_init
-# Repeat for decoder_step with step calib data, then benchmark
-```
+### [89] GPTQ decoder_init + RTN al4 decoder_step on 1.7B — NEW BEST
+**Date:** 2026-03-14
+**Idea:** GPTQ minimises layer-wise weight reconstruction error using calibration data. Applied to decoder_init (prefill) only; decoder_step uses RTN with accuracy_level=4. Hybrid approach avoids the memory problem of GPTQ on decoder_step (full KV cache in calibration data = 5 GB pkl, causing WSL VHD growth and Windows disk exhaustion).
+**Change:** New `collect_gptq_calib.py` collects real decoder inputs using the full Qwen3-ASR inference pipeline (encoder → prompt embedding → decoder_init), streaming audio from HuggingFace LibriSpeech test-other. Updated `quantize_nbits.py` with `--algo gptq`, `--calib-data`, and `--accuracy-level` args. ORT GPTQ requires file path (not ModelProto) and fails if config.json has unrecognised model_type (`qwen3_asr`) — worked around by hiding config.json during GPTQ run.
+
+**Important — ORT GPTQ side effects:**
+- Creates UUID-named `.data` temp files in the **source** model directory (~6.5 GB each), not cleaned up on completion or failure.
+- Creates `*_augment.onnx` files in source dir.
+- These caused WSL VHD growth → Windows C:\ exhaustion → WSL crash.
+- Must delete manually after GPTQ run.
+
 **Result:**
-<!-- Fill in after running -->
 | Metric | Value |
 |---|---|
-| WER (200-sample) | |
-| RTF (11s) | |
-| RTF (35s) | |
-| Model size | |
-| vs RTN int4 (4.33%) | |
-**Outcome:**
-**Success criterion:** WER < 4.33% (beats RTN int4) with RTF ≤ 0.65x.
+| WER (200-sample) | **4.25%** |
+| RTF (11s) | **0.34x** |
+| RTF (35s) | **0.34x** |
+| Model size | 4.3 GB |
+| vs RTN int4 no-al (4.33%, 0.56x) | −0.08pp WER, −39% RTF |
+| vs 1.7B FP32 (3.79%) | +0.46pp WER |
+| 35s transcript | "vertebral column" ✓, comma-separated (1.7B style) |
+
+Full comparison:
+| Engine | WER (200-sample) | RTF (11s) | RTF (35s) | Size |
+|---|---|---|---|---|
+| 1.7B FP32 | 3.79% | ~0.7x | ~0.7x | 8.8 GB |
+| **1.7B GPTQ-init+RTN al4** | **4.25%** | **0.34x** | **0.34x** | **4.3 GB** |
+| 1.7B RTN int4 (no al) | 4.33% | 0.56x | 0.65x | 4.3 GB |
+| 1.7B AWQ INT8 α=0.2 | 9.04% | 0.47x | 0.49x | 2.6 GB |
+| 0.6B FP32 | 4.42% | 0.29x | 0.32x | 3.8 GB |
+| 0.6B AWQ INT8 α=0.2 | 5.21% | 0.14x | 0.17x | 1.1 GB |
+| Parakeet INT8 | 5.45% | 0.16x | 0.13x | — |
+
+**Outcome:** IMPROVED — new best 1.7B quantized result. WER 4.25% vs RTN baseline 4.33% (−0.08pp). RTF improved 0.56x → 0.34x (−39%) due to accuracy_level=4 on decoder_step. The 1.7B GPTQ-init+RTN al4 (4.25% WER) beats 0.6B FP32 (4.42%) — highest-quality option below 1.7B FP32.
+**Committed:** no
+**Notes:**
+- Speed gain is entirely from accuracy_level=4 on decoder_step (runs 90+ times per decode). decoder_init runs once and uses GPTQ without accuracy_level.
+- WER gain is from GPTQ calibration on decoder_init (better weight quantization for prefill).
+- GPTQ decoder_step was attempted but abandoned due to the 5 GB KV-cache pkl causing Windows VHD exhaustion. Decoder_step RTN al4 provides adequate quality while being safe.
+- Calibration data: 32 LibriSpeech samples streamed from HuggingFace, decoder_init inputs captured via full encoder+prompt pipeline.
+- Output at `~/qwen3-asr-onnx/output/trial-1.7b-gptq-int4/`.
+**Success criterion met:** WER 4.25% < 4.33% and RTF 0.34x ≤ 0.65x ✓
 
 ### [90] Windows native benchmark of best 1.7B quantized model
 **Date:**
