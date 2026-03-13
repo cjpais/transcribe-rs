@@ -941,15 +941,15 @@ Speed is slower than AWQ INT8 (0.56x vs 0.47x) due to the fp32 dequantize fallba
 
 ### Full Comparison
 
-| Engine | WER (200-sample) | RTF (11s) | RTF (35s) | Size |
-|---|---|---|---|---|
-| 0.6B FP32 | 4.42% | 0.29x | 0.32x | 3.8 GB |
-| **0.6B AWQ INT8 α=0.2** | **5.21%** | **0.14x** | **0.17x** | **1.1 GB** |
-| 0.6B int4 MatMulNBits | 5.28% | 0.26x | — | 2.0 GB |
-| 1.7B FP32 | 3.79% | ~0.7x | ~0.7x | 8.8 GB |
-| **1.7B int4 MatMulNBits** | **4.33%** | **0.56x** | **0.65x** | **4.3 GB** |
-| 1.7B AWQ INT8 α=0.2 | 9.04% | 0.47x | 0.49x | 2.6 GB |
-| Parakeet-TDT INT8 | 5.45% | 0.16x | 0.17x | — |
+| Engine | WER (200-sample) | RTF (11s) | RTF (35s) | Size | Load |
+|---|---|---|---|---|---|
+| 0.6B FP32 | 4.42% | 0.29x | 0.32x | 3.8 GB | 17.0s |
+| **0.6B AWQ INT8 α=0.2** | **5.21%** | **0.14x** | **0.17x** | **1.1 GB** | **4.9s** |
+| 0.6B int4 MatMulNBits | 5.28% | 0.26x | 0.26x | 2.0 GB | 5.8s |
+| Parakeet-TDT 0.6B INT8 | 5.45% | 0.16x | 0.13x | — | 1.2s |
+| 1.7B FP32 | 3.79% | ~0.7x | ~0.7x | 8.8 GB | ~45s |
+| **1.7B int4 MatMulNBits** | **4.33%** | **0.56x** | **0.65x** | **4.3 GB** | **10.0s** |
+| 1.7B AWQ INT8 α=0.2 | 9.04% | 0.47x | 0.49x | 2.6 GB | 8.7s |
 
 ### Notes
 - ORT's x86 CPU MatMulNBits kernel does not compute in int4 — it dequantizes to fp32 first. Speed benefit requires a GPU EP or ARM64 with optimized kernel.
