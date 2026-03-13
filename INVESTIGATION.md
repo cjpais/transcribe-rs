@@ -1054,21 +1054,6 @@ Full comparison:
 **Success criterion met:** WER 4.25% < 4.33% and RTF 0.34x ≤ 0.65x ✓
 
 ### [90] Windows native benchmark of best 1.7B quantized model
-**Date:**
+**Date:** 2026-03-14
 **Idea:** ORT on Windows x64 uses different BLAS/SIMD paths than WSL Linux — historically 2–4× faster for the same model. The 1.7B int4's 0.56x RTF on WSL may approach real-time on Windows.
-**Change:** Update `run_bench_qwen3.ps1` to include a 1.7B benchmark run. Copy winning 1.7B quantized model to Windows model path. Run natively via PowerShell.
-**Method:**
-```powershell
-robocopy \\wsl.localhost\Ubuntu\home\anl\qwen3-asr-onnx\output\<winner> `
-  C:\Users\anl\AppData\Roaming\com.pais.handy\models\qwen3-asr-1.7b-quant /E
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File run_bench_qwen3.ps1
-```
-**Result:**
-<!-- Fill in after running -->
-| Engine | RTF (11s) | RTF (35s) | vs WSL |
-|---|---|---|---|
-| 1.7B int4 (Windows) | | | |
-| 0.6B AWQ INT8 (Windows) | | | |
-| Parakeet INT8 (Windows) | | | |
-**Outcome:**
-**Notes:** VHD compaction (`Optimize-VHD`) needed to reclaim Windows free space from Phase 0 WSL deletions.
+**Outcome:** Skipped. Benchmarks are measured relative to Parakeet in WSL; a Windows-vs-WSL comparison is not needed for this investigation's goals. WSL results from [89] are the authoritative baseline.
