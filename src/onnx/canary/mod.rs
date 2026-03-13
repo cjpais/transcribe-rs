@@ -1,5 +1,5 @@
 mod decoder;
-pub(crate) mod vocab;
+mod vocab;
 
 use std::path::Path;
 use std::time::Instant;
