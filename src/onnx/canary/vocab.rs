@@ -8,6 +8,7 @@ pub struct Vocab {
     token_to_id_map: HashMap<String, i64>,
     id_to_token_map: HashMap<i64, String>,
     eos_id: i64,
+    size: usize,
 }
 
 impl Vocab {
@@ -46,9 +47,11 @@ impl Vocab {
             TranscribeError::Config("Vocabulary missing required <|endoftext|> token".to_string())
         })?;
 
+        let size = token_to_id_map.len();
+
         log::info!(
             "Loaded vocabulary with {} tokens from {}",
-            token_to_id_map.len(),
+            size,
             path.display()
         );
 
@@ -56,6 +59,7 @@ impl Vocab {
             token_to_id_map,
             id_to_token_map,
             eos_id,
+            size,
         })
     }
 
@@ -71,13 +75,19 @@ impl Vocab {
         self.eos_id
     }
 
+    pub fn size(&self) -> usize {
+        self.size
+    }
+
     pub fn build_prompt(
         &self,
         src_lang: &str,
         tgt_lang: &str,
         use_pnc: bool,
+        use_itn: bool,
     ) -> Result<Vec<i64>, TranscribeError> {
         let pnc_token = if use_pnc { "<|pnc|>" } else { "<|nopnc|>" };
+        let itn_token = if use_itn { "<|itn|>" } else { "<|noitn|>" };
 
         let tokens = [
             "<|startofcontext|>".to_string(),
@@ -86,7 +96,7 @@ impl Vocab {
             format!("<|{src_lang}|>"),
             format!("<|{tgt_lang}|>"),
             pnc_token.to_string(),
-            "<|noitn|>".to_string(),
+            itn_token.to_string(),
             "<|notimestamp|>".to_string(),
             "<|nodiarize|>".to_string(),
         ];

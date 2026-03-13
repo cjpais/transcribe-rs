@@ -28,7 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         positional
             .first()
             .map(|s| s.as_str())
-            .unwrap_or("models/canary-1b-v2"),
+            .unwrap_or("models/canary-180m-flash"),
     );
     let wav_path = PathBuf::from(
         positional
@@ -46,7 +46,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Quantization::FP32
     };
 
-    println!("Using Canary 1B v2 engine");
+    println!("Using Canary engine");
     println!(
         "Loading model: {:?} (quantization: {})",
         model_path,

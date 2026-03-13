@@ -1,15 +1,15 @@
 use ndarray::Array4;
 use ort::session::Session;
-use ort::value::Tensor;
 use ort::value::ValueType;
+use ort::value::{DynValue, Tensor};
 
 use super::vocab::Vocab;
 use crate::TranscribeError;
 
 pub fn decode_autoregressive(
     decoder: &mut Session,
-    encoder_embeddings: &Tensor<f32>,
-    encoder_mask: &Tensor<i64>,
+    encoder_embeddings: &DynValue,
+    encoder_mask: &DynValue,
     prompt_tokens: Vec<i64>,
     vocab: &Vocab,
     max_sequence_length: usize,
@@ -23,20 +23,23 @@ pub fn decode_autoregressive(
     );
 
     let empty_cache = Array4::<f32>::zeros((num_layers, 1, 0, hidden_dim));
-    let mut decoder_mems = Tensor::from_array(empty_cache)?;
+    let mut decoder_mems: DynValue = Tensor::from_array(empty_cache)?.into_dyn();
 
     let eos_id = vocab.eos_token_id();
     let mut all_tokens = prompt_tokens;
-    let mut cache_len: usize = 0;
+
+    // Limit decode steps so total tokens (prompt + generated) stays within
+    // the model's position embedding table (typically 1024).
+    let max_steps = max_sequence_length.saturating_sub(all_tokens.len());
 
     log::debug!(
-        "Starting autoregressive decode with {} prompt tokens, max_len={}",
+        "Starting autoregressive decode with {} prompt tokens, max_steps={}",
         all_tokens.len(),
-        max_sequence_length
+        max_steps
     );
 
-    for step in 0..max_sequence_length {
-        let input_ids_tensor = if cache_len == 0 {
+    for step in 0..max_steps {
+        let input_ids_tensor = if step == 0 {
             let len = all_tokens.len();
             let shape = vec![1i64, len as i64];
             Tensor::from_array((shape, all_tokens.clone().into_boxed_slice()))?
@@ -47,25 +50,28 @@ pub fn decode_autoregressive(
             Tensor::from_array((vec![1i64, 1i64], vec![last].into_boxed_slice()))?
         };
 
-        let outputs = decoder.run(ort::inputs![
+        let mut outputs = decoder.run(ort::inputs![
             "input_ids" => input_ids_tensor,
             "encoder_embeddings" => encoder_embeddings,
             "encoder_mask" => encoder_mask,
             "decoder_mems" => decoder_mems
         ])?;
 
-        let (logits_shape, logits_data) = outputs["logits"]
-            .try_extract_tensor::<f32>()
-            .map_err(|e| TranscribeError::Inference(format!("Failed to extract logits: {e}")))?;
+        // Extract logits in a scoped borrow, then release before remove()
+        let next_token = {
+            let (logits_shape, logits_data) =
+                outputs["logits"].try_extract_tensor::<f32>().map_err(|e| {
+                    TranscribeError::Inference(format!("Failed to extract logits: {e}"))
+                })?;
 
-        let logits_dims: Vec<i64> = logits_shape.iter().copied().collect();
-        let seq_len = logits_dims[1] as usize;
-        let vocab_size = logits_dims[2] as usize;
+            let seq_len = logits_shape[1] as usize;
+            let vocab_size = logits_shape[2] as usize;
 
-        let last_step_offset = (seq_len - 1) * vocab_size;
-        let last_logits = &logits_data[last_step_offset..last_step_offset + vocab_size];
+            let last_step_offset = (seq_len - 1) * vocab_size;
+            let last_logits = &logits_data[last_step_offset..last_step_offset + vocab_size];
 
-        let next_token = argmax(last_logits) as i64;
+            argmax(last_logits) as i64
+        };
 
         log::debug!("Step {}: predicted token ID {}", step, next_token);
 
@@ -76,16 +82,10 @@ pub fn decode_autoregressive(
 
         all_tokens.push(next_token);
 
-        let (mems_shape_out, mems_data) = outputs["decoder_hidden_states"]
-            .try_extract_tensor::<f32>()
-            .map_err(|e| {
-                TranscribeError::Inference(format!("Failed to extract decoder_hidden_states: {e}"))
-            })?;
-
-        let new_shape: Vec<i64> = mems_shape_out.iter().copied().collect();
-        cache_len = new_shape[2] as usize;
-
-        decoder_mems = Tensor::from_array((new_shape, mems_data.to_vec().into_boxed_slice()))?;
+        // Take the KV cache directly from outputs (Arc clone, no data copy)
+        decoder_mems = outputs.remove("decoder_hidden_states").ok_or_else(|| {
+            TranscribeError::Inference("Missing decoder_hidden_states output".to_string())
+        })?;
     }
 
     let text = vocab.decode_tokens(&all_tokens);

@@ -13,18 +13,45 @@ use crate::{
     ModelCapabilities, SpeechModel, TranscribeError, TranscribeOptions, TranscriptionResult,
 };
 
-const CAPABILITIES: ModelCapabilities = ModelCapabilities {
-    name: "Canary 1B v2",
-    engine_id: "canary",
-    sample_rate: 16000,
-    languages: &[
-        "en", "de", "es", "fr", "hi", "ja", "ko", "pt", "zh", "ar", "cs", "da", "fi", "hu", "it",
-        "lt", "lv", "nl", "no", "pl", "ro", "ru", "sk", "sv", "tr", "uk", "vi",
-    ],
-    supports_timestamps: false,
-    supports_translation: true,
-    supports_streaming: false,
-};
+/// Known Canary model variants, auto-detected from vocabulary size.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CanaryVariant {
+    /// Canary Flash models (180M Flash, 1B Flash) — 4 languages.
+    Flash,
+    /// Canary 1B v2 — 27 languages.
+    V2,
+}
+
+const FLASH_LANGUAGES: &[&str] = &["en", "de", "es", "fr"];
+
+const V2_LANGUAGES: &[&str] = &[
+    "bg", "hr", "cs", "da", "nl", "en", "et", "fi", "fr", "de", "el", "hu", "it", "lv", "lt", "mt",
+    "pl", "pt", "ro", "sk", "sl", "es", "sv", "ru", "uk",
+];
+
+impl CanaryVariant {
+    fn detect(vocab_size: usize) -> Self {
+        if vocab_size < 10_000 {
+            CanaryVariant::Flash
+        } else {
+            CanaryVariant::V2
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            CanaryVariant::Flash => "Canary Flash",
+            CanaryVariant::V2 => "Canary 1B v2",
+        }
+    }
+
+    fn languages(self) -> &'static [&'static str] {
+        match self {
+            CanaryVariant::Flash => FLASH_LANGUAGES,
+            CanaryVariant::V2 => V2_LANGUAGES,
+        }
+    }
+}
 
 /// Per-model inference parameters for Canary.
 #[derive(Debug, Clone)]
@@ -33,8 +60,15 @@ pub struct CanaryParams {
     pub language: Option<String>,
     /// Target language for translation (e.g. "en"). Defaults to source language.
     pub target_language: Option<String>,
-    /// Whether to use punctuation and capitalization. Defaults to true.
+    /// Punctuation and capitalization. When true, the model adds proper punctuation
+    /// and capitalization to the output. When false, output is more literal/raw.
+    /// Defaults to true.
     pub use_pnc: bool,
+    /// Inverse text normalization. When true, spoken numbers and quantities are
+    /// converted to written form (e.g. "one hundred twenty three" → "123").
+    /// Only supported on V2 models; silently ignored on Flash models.
+    /// Defaults to true.
+    pub use_itn: bool,
     /// Maximum number of tokens to generate. Defaults to 1024.
     pub max_sequence_length: usize,
 }
@@ -45,17 +79,19 @@ impl Default for CanaryParams {
             language: None,
             target_language: None,
             use_pnc: true,
+            use_itn: true,
             max_sequence_length: 1024,
         }
     }
 }
 
-/// Canary 1B v2 speech model backed by three ONNX sessions (preprocessor, encoder, decoder).
+/// Canary speech model backed by three ONNX sessions (preprocessor, encoder, decoder).
 pub struct CanaryModel {
     preprocessor: Session,
     encoder: Session,
     decoder: Session,
     vocab: Vocab,
+    variant: CanaryVariant,
 }
 
 impl CanaryModel {
@@ -99,13 +135,20 @@ impl CanaryModel {
         let vocab_path = model_dir.join("vocab.txt");
         let vocab = Vocab::load(&vocab_path)?;
 
-        log::info!("Canary model loaded in {:.2?}", load_start.elapsed());
+        let variant = CanaryVariant::detect(vocab.size());
+        log::info!(
+            "Canary model loaded in {:.2?} (variant: {:?}, vocab: {} tokens)",
+            load_start.elapsed(),
+            variant,
+            vocab.size()
+        );
 
         Ok(Self {
             preprocessor,
             encoder,
             decoder,
             vocab,
+            variant,
         })
     }
 
@@ -117,6 +160,9 @@ impl CanaryModel {
     ) -> Result<TranscriptionResult, TranscribeError> {
         let src_lang = params.language.as_deref().unwrap_or("en");
         let tgt_lang = params.target_language.as_deref().unwrap_or(src_lang);
+
+        // Flash models don't support ITN — silently disable to avoid empty output
+        let use_itn = params.use_itn && self.variant != CanaryVariant::Flash;
 
         let total_start = Instant::now();
 
@@ -133,79 +179,52 @@ impl CanaryModel {
         let waveforms_lens =
             Tensor::from_array((vec![1i64], vec![num_samples as i64].into_boxed_slice()))?;
 
-        let preprocess_out = self.preprocessor.run(ort::inputs![
+        let mut preprocess_out = self.preprocessor.run(ort::inputs![
             "waveforms" => waveforms,
             "waveforms_lens" => waveforms_lens
         ])?;
 
-        let (features_shape, features_data) = preprocess_out["features"]
-            .try_extract_tensor::<f32>()
-            .map_err(|e| TranscribeError::Inference(format!("Failed to extract features: {e}")))?;
-        let (features_lens_shape, features_lens_data) = preprocess_out["features_lens"]
-            .try_extract_tensor::<i64>()
-            .map_err(|e| {
-                TranscribeError::Inference(format!("Failed to extract features_lens: {e}"))
-            })?;
-
-        let features_shape_vec: Vec<i64> = features_shape.iter().copied().collect();
-        let features_lens_shape_vec: Vec<i64> = features_lens_shape.iter().copied().collect();
-
         log::debug!(
-            "Preprocessor output: features shape {:?}, lens {:?} ({:.2?})",
-            features_shape_vec,
-            features_lens_data,
+            "Preprocessor output: features shape {:?} ({:.2?})",
+            preprocess_out["features"].shape(),
             preprocess_start.elapsed()
         );
 
-        let features_tensor = Tensor::from_array((
-            features_shape_vec,
-            features_data.to_vec().into_boxed_slice(),
-        ))?;
-        let features_lens_tensor = Tensor::from_array((
-            features_lens_shape_vec,
-            features_lens_data.to_vec().into_boxed_slice(),
-        ))?;
+        // Pass outputs directly to encoder (no data copy)
+        let features = preprocess_out
+            .remove("features")
+            .ok_or_else(|| TranscribeError::Inference("Missing features output".to_string()))?;
+        let features_lens = preprocess_out.remove("features_lens").ok_or_else(|| {
+            TranscribeError::Inference("Missing features_lens output".to_string())
+        })?;
 
         // --- Step 2: Encode mel features -> encoder embeddings ---
         let encode_start = Instant::now();
 
-        let encoder_out = self.encoder.run(ort::inputs![
-            "audio_signal" => features_tensor,
-            "length" => features_lens_tensor
+        let mut encoder_out = self.encoder.run(ort::inputs![
+            "audio_signal" => features,
+            "length" => features_lens
         ])?;
-
-        let (enc_emb_shape, enc_emb_data) = encoder_out["encoder_embeddings"]
-            .try_extract_tensor::<f32>()
-            .map_err(|e| {
-                TranscribeError::Inference(format!("Failed to extract encoder_embeddings: {e}"))
-            })?;
-        let (enc_mask_shape, enc_mask_data) = encoder_out["encoder_mask"]
-            .try_extract_tensor::<i64>()
-            .map_err(|e| {
-                TranscribeError::Inference(format!("Failed to extract encoder_mask: {e}"))
-            })?;
-
-        let enc_emb_shape_vec: Vec<i64> = enc_emb_shape.iter().copied().collect();
-        let enc_mask_shape_vec: Vec<i64> = enc_mask_shape.iter().copied().collect();
 
         log::debug!(
             "Encoder output: embeddings shape {:?}, mask shape {:?} ({:.2?})",
-            enc_emb_shape_vec,
-            enc_mask_shape_vec,
+            encoder_out["encoder_embeddings"].shape(),
+            encoder_out["encoder_mask"].shape(),
             encode_start.elapsed()
         );
 
-        let encoder_embeddings =
-            Tensor::from_array((enc_emb_shape_vec, enc_emb_data.to_vec().into_boxed_slice()))?;
-        let encoder_mask = Tensor::from_array((
-            enc_mask_shape_vec,
-            enc_mask_data.to_vec().into_boxed_slice(),
-        ))?;
+        // Pass outputs directly to decoder (no data copy)
+        let encoder_embeddings = encoder_out.remove("encoder_embeddings").ok_or_else(|| {
+            TranscribeError::Inference("Missing encoder_embeddings output".to_string())
+        })?;
+        let encoder_mask = encoder_out
+            .remove("encoder_mask")
+            .ok_or_else(|| TranscribeError::Inference("Missing encoder_mask output".to_string()))?;
 
         // --- Step 3: Build prompt tokens ---
         let prompt_tokens = self
             .vocab
-            .build_prompt(src_lang, tgt_lang, params.use_pnc)?;
+            .build_prompt(src_lang, tgt_lang, params.use_pnc, use_itn)?;
 
         log::debug!(
             "Prompt tokens ({}): {:?}",
@@ -241,7 +260,15 @@ impl CanaryModel {
 
 impl SpeechModel for CanaryModel {
     fn capabilities(&self) -> ModelCapabilities {
-        CAPABILITIES
+        ModelCapabilities {
+            name: self.variant.name(),
+            engine_id: "canary",
+            sample_rate: 16000,
+            languages: self.variant.languages(),
+            supports_timestamps: false,
+            supports_translation: true,
+            supports_streaming: false,
+        }
     }
 
     fn transcribe(
