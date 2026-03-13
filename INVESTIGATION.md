@@ -956,3 +956,111 @@ Speed is slower than AWQ INT8 (0.56x vs 0.47x) due to the fp32 dequantize fallba
 - For 0.6B on x86 CPU, AWQ INT8 α=0.2 remains the best option (2× faster, similar WER).
 - For 1.7B on x86 CPU, int4 MatMulNBits is the best option (4.33% vs 9.04% WER at only marginally more compute than AWQ INT8).
 - The 1.7B int4 model (4.33% WER) beats the 0.6B FP32 (4.42%) — so for quality-sensitive use cases, 1.7B int4 is the highest-quality option below 1.7B FP32.
+
+---
+
+## Further Quantization Investigations (Experiments 87-90)
+
+Baselines entering this phase:
+
+| Engine | WER (200-sample) | RTF (11s) | RTF (35s) | Size |
+|---|---|---|---|---|
+| 0.6B FP32 | 4.42% | 0.29x | 0.32x | 3.8 GB |
+| 0.6B AWQ INT8 α=0.2 | 5.21% | 0.14x | 0.17x | 1.1 GB |
+| 1.7B FP32 | 3.79% | ~0.7x | ~0.7x | 8.8 GB |
+| 1.7B int4 RTN (block_size=64) | 4.33% | 0.56x | 0.65x | 4.3 GB |
+| Parakeet-TDT 0.6B INT8 | 5.45% | 0.16x | 0.13x | — |
+
+### [87] accuracy_level effect on MatMulNBits RTF and WER (0.6B int4)
+**Date:** 2026-03-13
+**Idea:** ORT's `MatMulNBitsQuantizer` accepts an `accuracy_level` parameter (0–4) that controls the compute precision for MatMulNBits at inference time. Default (None) uses a fp32 dequantize→matmul fallback path. Higher levels may activate different ORT kernels.
+**Change:** Added `--accuracy-level INT` to `quantize_nbits.py` (direct parameter to `MatMulNBitsQuantizer`). Built 0.6B int4 models with all five levels; JFK RTF only per trial; deleted after benchmarking. Ran 100- and 200-sample WER on the winning level (4).
+**Result:**
+| accuracy_level | RTF (11s) | RTF (35s) | WER (200-sample) |
+|---|---|---|---|
+| None (baseline) | 0.26x | 0.26x | 5.28% |
+| 0 | 0.18x | — | — |
+| 1 | 0.19x | — | — |
+| 2 | 0.17x | — | — |
+| 3 | 0.17x | — | — |
+| **4** | **0.15x** | **0.21x** | **5.18%** |
+
+Level 4 is best on both speed (JFK: 0.15x) and WER (5.18%). Levels 0–3 show intermediate improvement over the no-level fallback; level 4 triggers a distinct kernel path that is simultaneously faster and more numerically accurate.
+
+The 35s RTF of 0.21x is slower than AWQ INT8's 0.17x (longer sequences show more per-step dequantization overhead). The 11s RTF of 0.15x ties AWQ INT8's 0.14x within noise. WER 5.18% vs AWQ INT8 5.21% — statistically equivalent.
+
+**Outcome:** IMPROVED over no-level baseline (0.26x → 0.15x RTF, 5.28% → 5.18% WER). AWQ INT8 α=0.2 remains preferable for production: 2× smaller (1.1 GB vs 2.0 GB) and faster on longer audio (0.17x vs 0.21x on 35s). But accuracy_level=4 is the correct setting for any future int4 experiments.
+**Committed:** no
+**Notes:** accuracy_level affects inference kernel selection, not quantization weights. The weight data is identical across all levels — the WER improvement at level 4 comes from higher precision in the MatMulNBits accumulation path, not from better quantization. The "None" default likely uses a generic fallback that is both slower and less precise than level 4's specialized kernel.
+
+### [88] AWQ smooth α=0.2 + int4 MatMulNBits (accuracy_level=4) on 0.6B
+**Date:** 2026-03-13
+**Idea:** Plain int4 al4 gives 5.18% WER. AWQ smoothing redistributes activation outliers into weights before quantization — applying it before int4 MatMulNBits may reduce per-group quantization error, potentially beating AWQ INT8 on WER.
+**Change:** AWQ smooth 0.6B at α=0.2 using cached activations. int4 MatMulNBits block_size=64 accuracy_level=4 on smoothed decoder. INT8 encoder from `qwen3-asr-0.6b-smooth-int8/encoder.onnx`. Intermediate smooth dir deleted immediately.
+**Result:**
+| Metric | Value |
+|---|---|
+| WER (100-sample) | 5.08% |
+| RTF (11s) | 0.16x |
+| Model size | 1.5 GB |
+| vs AWQ INT8 α=0.2 (100-sample: 4.76%) | worse |
+| vs plain int4 al4 (100-sample: 4.45%) | worse |
+
+**Outcome:** NO IMPROVEMENT — smoothing degrades int4 quality. AWQ smoothing is calibrated for INT8's per-tensor quantization (absorbs outliers that cause large per-tensor scale inflation). int4 MatMulNBits uses per-group scales (block_size=64), which already handle local outliers independently. Pre-smoothing disrupts the local weight distribution that the per-group scales are optimised for. RTF is also slightly slower (0.16x vs 0.15x for plain int4).
+**Committed:** no
+**Notes:** Model deleted. For 0.6B int4, plain RTN + accuracy_level=4 is the best configuration: do not smooth before int4 quantization.
+
+### [89] GPTQ int4 on 1.7B decoder
+**Date:**
+**Idea:** GPTQ minimises layer-wise weight reconstruction error using calibration data via Hessian-based optimal perturbation. On LLMs it typically outperforms RTN int4 by 0.3–0.8 pp WER at the same bit-width. Our 1.7B RTN int4 is at 4.33%; GPTQ could push closer to FP32 (3.79%).
+**Change:** New script `collect_gptq_calib.py` collects decoder_init and decoder_step inputs from LibriSpeech audio. Updated `quantize_nbits.py` with `--algo gptq` and `--calib-data` args. GPTQ quantizes decoder_init and decoder_step separately.
+**Method:**
+```bash
+# Step 1: collect calibration data
+uv run python collect_gptq_calib.py \
+  --model output/qwen3-asr-1.7b \
+  --audio-dir tests/fixtures \
+  --n-samples 32 --decoder-steps 8 \
+  --output calibration_cache/1.7b_gptq_calib.pkl \
+  --target decoder_init
+# Step 2: GPTQ quantize decoder_init
+uv run python quantize_nbits.py \
+  --input output/qwen3-asr-1.7b \
+  --output output/trial-1.7b-gptq-int4 \
+  --bits 4 --block-size 64 \
+  --algo gptq \
+  --calib-data calibration_cache/1.7b_gptq_calib.pkl \
+  --decoders decoder_init
+# Repeat for decoder_step with step calib data, then benchmark
+```
+**Result:**
+<!-- Fill in after running -->
+| Metric | Value |
+|---|---|
+| WER (200-sample) | |
+| RTF (11s) | |
+| RTF (35s) | |
+| Model size | |
+| vs RTN int4 (4.33%) | |
+**Outcome:**
+**Success criterion:** WER < 4.33% (beats RTN int4) with RTF ≤ 0.65x.
+
+### [90] Windows native benchmark of best 1.7B quantized model
+**Date:**
+**Idea:** ORT on Windows x64 uses different BLAS/SIMD paths than WSL Linux — historically 2–4× faster for the same model. The 1.7B int4's 0.56x RTF on WSL may approach real-time on Windows.
+**Change:** Update `run_bench_qwen3.ps1` to include a 1.7B benchmark run. Copy winning 1.7B quantized model to Windows model path. Run natively via PowerShell.
+**Method:**
+```powershell
+robocopy \\wsl.localhost\Ubuntu\home\anl\qwen3-asr-onnx\output\<winner> `
+  C:\Users\anl\AppData\Roaming\com.pais.handy\models\qwen3-asr-1.7b-quant /E
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File run_bench_qwen3.ps1
+```
+**Result:**
+<!-- Fill in after running -->
+| Engine | RTF (11s) | RTF (35s) | vs WSL |
+|---|---|---|---|
+| 1.7B int4 (Windows) | | | |
+| 0.6B AWQ INT8 (Windows) | | | |
+| Parakeet INT8 (Windows) | | | |
+**Outcome:**
+**Notes:** VHD compaction (`Optimize-VHD`) needed to reclaim Windows free space from Phase 0 WSL deletions.
