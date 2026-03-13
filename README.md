@@ -1,6 +1,6 @@
 # transcribe-rs
 
-Multi-engine speech-to-text library for Rust. Supports Parakeet, Moonshine, SenseVoice, GigaAM, Whisper, Whisperfile, and OpenAI.
+Multi-engine speech-to-text library for Rust. Supports Parakeet, Canary, Moonshine, SenseVoice, GigaAM, Whisper, Whisperfile, and OpenAI.
 
 ## Breaking Changes in 0.3.0
 
@@ -24,7 +24,7 @@ No features are enabled by default. Pick the engines you need:
 
 | Feature | Engines |
 |---------|---------|
-| `onnx` | Parakeet, Moonshine, SenseVoice, GigaAM (via ONNX Runtime) |
+| `onnx` | Parakeet, Canary, Moonshine, SenseVoice, GigaAM (via ONNX Runtime) |
 | `whisper-cpp` | Whisper (local, GGML via whisper.cpp with Metal/Vulkan) |
 | `whisperfile` | Whisperfile (local server wrapper) |
 | `openai` | OpenAI API (remote, async) |
@@ -56,6 +56,48 @@ println!("{}", result.text);
 All local engines implement the `SpeechModel` trait. Remote engines (OpenAI) implement `RemoteTranscriptionEngine` separately because they are async and file-based.
 
 ## Usage by Engine
+
+### Canary
+
+```rust
+use transcribe_rs::onnx::canary::{CanaryModel, CanaryParams};
+use transcribe_rs::onnx::Quantization;
+use std::path::PathBuf;
+
+let mut model = CanaryModel::load(
+    &PathBuf::from("models/canary-1b-v2"),
+    &Quantization::Int8,
+)?;
+
+let samples = transcribe_rs::audio::read_wav_samples(&PathBuf::from("audio.wav"))?;
+let result = model.transcribe_with(
+    &samples,
+    &CanaryParams {
+        language: Some("en".to_string()),
+        ..Default::default()
+    },
+)?;
+```
+
+Canary supports translation via `target_language`:
+
+```rust
+let result = model.transcribe_with(
+    &samples,
+    &CanaryParams {
+        language: Some("de".to_string()),
+        target_language: Some("en".to_string()),
+        ..Default::default()
+    },
+)?;
+```
+
+Model variant (Flash vs V2) is auto-detected from vocabulary size. Flash models support en/de/es/fr; V2 supports 25 languages.
+
+**Features:**
+- **PnC** (punctuation and capitalization) — enabled by default. When on, the model adds proper punctuation and capitalization. Set `use_pnc: false` for raw output.
+- **ITN** (inverse text normalization) — enabled by default. Converts spoken numbers to written form (e.g. "one hundred twenty three" becomes "123"). Set `use_itn: false` to disable. Only supported on V2 models; silently ignored on Flash.
+- **Translation** — set `target_language` to translate between supported languages.
 
 ### SenseVoice
 
@@ -206,6 +248,9 @@ All audio input must be **16 kHz, mono, 16-bit PCM WAV**.
 | Engine | Download |
 |--------|----------|
 | Parakeet (int8) | [blob.handy.computer](https://blob.handy.computer/parakeet-v3-int8.tar.gz) / [HuggingFace](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/tree/main) |
+| Canary 180M Flash | [HuggingFace](https://huggingface.co/istupakov/canary-180m-flash-onnx) |
+| Canary 1B Flash | [HuggingFace](https://huggingface.co/istupakov/canary-1b-flash-onnx) |
+| Canary 1B v2 | [HuggingFace](https://huggingface.co/istupakov/canary-1b-v2-onnx) |
 | SenseVoice (int8) | [blob.handy.computer](https://blob.handy.computer/sense-voice-int8.tar.gz) / [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models) |
 | Moonshine | [HuggingFace](https://huggingface.co/UsefulSensors/moonshine/tree/main/onnx/merged) |
 | GigaAM | [HuggingFace](https://huggingface.co/istupakov/gigaam-v3-onnx/tree/main) |
@@ -219,6 +264,15 @@ All audio input must be **16 kHz, mono, 16-bit PCM WAV**.
 models/parakeet-tdt-0.6b-v3-int8/
 ├── encoder-model.int8.onnx
 ├── decoder_joint-model.int8.onnx
+├── nemo128.onnx
+└── vocab.txt
+```
+
+**Canary** (directory):
+```
+models/canary-1b-v2/
+├── encoder-model.int8.onnx
+├── decoder-model.int8.onnx
 ├── nemo128.onnx
 └── vocab.txt
 ```
@@ -276,6 +330,7 @@ Each engine has an example in `examples/`. Run with the appropriate feature flag
 
 ```bash
 cargo run --example parakeet --features onnx
+cargo run --example canary --features onnx
 cargo run --example sense_voice --features onnx
 cargo run --example moonshine --features onnx
 cargo run --example moonshine_streaming --features onnx
@@ -317,8 +372,8 @@ Parakeet int8 benchmarks:
 
 ## Acknowledgments
 
-- [istupakov](https://github.com/istupakov/onnx-asr) for the ONNX Parakeet and GigaAM exports
-- [NVIDIA](https://github.com/NVIDIA/NeMo) for Parakeet
+- [istupakov](https://github.com/istupakov/onnx-asr) for the ONNX Parakeet, Canary, and GigaAM exports
+- [NVIDIA](https://github.com/NVIDIA/NeMo) for Parakeet and Canary
 - [whisper.cpp](https://github.com/ggerganov/whisper.cpp)
 - [jart](http://github.com/jart) / [Mozilla AI](https://github.com/mozilla-ai) for [llamafile](https://github.com/mozilla-ai/llamafile) and Whisperfile
 - [UsefulSensors](https://github.com/usefulsensors) for Moonshine
