@@ -83,8 +83,10 @@
 //! actual language support of the loaded model (English-only vs multilingual) rather than
 //! always reporting all 99 languages.
 
+pub mod accel;
 pub mod audio;
 pub mod error;
+pub use accel::{available_accelerators, get_accelerator, set_accelerator, AcceleratorPreference};
 pub use error::TranscribeError;
 
 #[cfg(feature = "audio-features")]

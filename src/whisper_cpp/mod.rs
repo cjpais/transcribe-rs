@@ -27,6 +27,7 @@
 //! ```
 
 use crate::{ModelCapabilities, SpeechModel, TranscribeError, TranscribeOptions, TranscriptionResult, TranscriptionSegment};
+use crate::accel::get_accelerator;
 use std::path::Path;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
@@ -106,9 +107,14 @@ pub struct WhisperEngine {
 }
 
 impl WhisperEngine {
-    /// Load a Whisper model with default parameters.
+    /// Load a Whisper model, respecting the global accelerator preference.
+    ///
+    /// Use [`load_with_params`](Self::load_with_params) for explicit control.
     pub fn load(model_path: &Path) -> Result<Self, TranscribeError> {
-        Self::load_with_params(model_path, WhisperLoadParams::default())
+        let params = WhisperLoadParams {
+            use_gpu: get_accelerator().use_gpu(),
+        };
+        Self::load_with_params(model_path, params)
     }
 
     /// Load a Whisper model with custom parameters.
