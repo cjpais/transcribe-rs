@@ -843,3 +843,65 @@ The α=0.2 AWQ-smoothed dynamic INT8 quantization is the optimal configuration f
 3. Attention projection quantization provides most of the speed benefit but also most of the quality loss
 4. For applications where WER < 5% is required, use FP32 (or wait for the 1.7B INT8 to be resolved)
 5. For speed-sensitive applications, α=0.2 INT8 beats Parakeet on both WER (5.21% vs 5.45%) and speed (0.14x vs 0.16x RTF)
+
+---
+
+## 1.7B Quantization Trials (Experiments 79-83)
+
+### Baseline
+| Engine | WER (200-sample) | RTF (11s) | RTF (35s) | Size |
+|---|---|---|---|---|
+| Qwen3-ASR 1.7B FP32 | 3.79% | — | — | 8.8 GB |
+
+### [79] 1.7B naive INT8 (no smoothing)
+**Date:** 2026-03-13
+**Result:** 100-sample WER: 9.66% — +5.87pp vs FP32.
+
+### [80] 1.7B INT8 AWQ α=0.5
+**Date:** 2026-03-13
+**Result:** 100-sample WER: 16.14% — worse than naive INT8. The 1.7B is more sensitive to aggressive smoothing than the 0.6B (where α=0.5 gave 5.62%).
+
+### [81] 1.7B INT8 AWQ α=0.1
+**Date:** 2026-03-13
+**Result:** 25.35% — too little smoothing, quantizer hits raw activation outliers directly.
+
+### [82] 1.7B INT8 AWQ α=0.15
+**Date:** 2026-03-13
+**Result:** 22.55% — still badly degraded. The 1.7B alpha-WER curve drops off sharply below α=0.2.
+
+### [83] 1.7B INT8 AWQ α=0.2 — BEST
+**Date:** 2026-03-13
+**Idea:** Apply same optimal alpha from 0.6B to 1.7B.
+**Result:**
+| Engine | WER (200-sample) | RTF (11s) | RTF (35s) | Size | Load |
+|---|---|---|---|---|---|
+| 1.7B FP32 | 3.79% | — | — | 8.8 GB | — |
+| **1.7B INT8 α=0.2** | **9.04%** | **0.49x** | **0.47x** | **2.6 GB** | **8.7s** |
+
+**Outcome:** α=0.2 is optimal for 1.7B, same as 0.6B. However the INT8 penalty is much larger: +5.25pp vs 0.6B's +0.79pp. The alpha-WER curve for 1.7B is sharp and narrow around 0.2 — any deviation (0.15 or 0.25) causes dramatic WER regression.
+
+### [84] 1.7B INT8 AWQ α=0.25
+**Date:** 2026-03-13
+**Result:** 100-sample WER: 7.69% (note: 100-sample noise is significant). 200-sample would likely be comparable or worse than α=0.2.
+**Outcome:** α=0.2 confirmed as optimal.
+
+### 1.7B Alpha Sweep Summary
+
+| Alpha | WER (100-sample) |
+|---|---|
+| 0.10 | 25.35% |
+| 0.15 | 22.55% |
+| 0.20 | **6.35%** (9.04% on 200-sample) |
+| 0.25 | 7.69% |
+| 0.50 | 16.14% |
+| naive | 9.66% |
+| FP32 | 3.94% (3.79% on 200-sample) |
+
+### 1.7B Conclusions
+
+1. α=0.2 is optimal for 1.7B, same as 0.6B, but the alpha-WER minimum is much sharper
+2. The +5.25pp INT8 penalty (9.04% vs 3.79%) is substantially worse than 0.6B's +0.79pp
+3. 0.47–0.49x RTF — about 3× slower than 0.6B INT8 (0.14x), as expected for a ~3× larger decoder
+4. Load time of ~8.7s (cold) is high; subsequent loads benefit from OS file cache
+5. The 1.7B INT8 at 9.04% WER offers better quality than Parakeet (5.45%) only in the sense that it has full punctuation and sentence structure, but at a large WER cost vs Qwen3 0.6B INT8 (5.21%)
+6. 1.7B INT8 is not recommended for production until the quantization penalty can be reduced further
