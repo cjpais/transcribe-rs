@@ -49,11 +49,17 @@ const ENGLISH_ONLY_LANGUAGES: &[&str] = &["en"];
 #[derive(Debug, Clone)]
 pub struct WhisperLoadParams {
     pub use_gpu: bool,
+    /// Enable flash attention for faster inference.
+    /// Cannot be used with DTW token-level timestamps.
+    pub flash_attn: bool,
 }
 
 impl Default for WhisperLoadParams {
     fn default() -> Self {
-        Self { use_gpu: true }
+        Self {
+            use_gpu: true,
+            flash_attn: true,
+        }
     }
 }
 
@@ -124,6 +130,7 @@ impl WhisperEngine {
     pub fn load(model_path: &Path) -> Result<Self, TranscribeError> {
         let params = WhisperLoadParams {
             use_gpu: get_whisper_accelerator().use_gpu(),
+            ..Default::default()
         };
         Self::load_with_params(model_path, params)
     }
@@ -139,6 +146,7 @@ impl WhisperEngine {
 
         let mut context_params = WhisperContextParameters::default();
         context_params.use_gpu = params.use_gpu;
+        context_params.flash_attn = params.flash_attn;
         let context = WhisperContext::new_with_params(model_path.to_str().unwrap(), context_params)
             .map_err(|e| TranscribeError::Inference(e.to_string()))?;
 
