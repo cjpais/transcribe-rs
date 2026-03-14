@@ -31,10 +31,6 @@ ort-directml = ["onnx", "ort/directml"]
 ort-rocm     = ["onnx", "ort/rocm"]
 ort-accel    = ["ort-cuda", "ort-directml", "ort-rocm"]
 
-# --- Cross-framework Umbrellas ---
-cuda  = ["ort-cuda"]    # will grow: "candle-cuda", "burn-cuda"
-accel = ["ort-accel"]   # will grow: "candle-accel", "burn-accel"
-
 # Convenience
 all = ["onnx", "whisper-cpp", "whisperfile", "openai"]
 
