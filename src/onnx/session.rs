@@ -98,18 +98,18 @@ fn build_session(
         .with_execution_providers(execution_providers())?
         .commit_from_file(path)?;
 
-    for input in &session.inputs {
+    for input in session.inputs() {
         log::info!(
             "Model input: name={}, type={:?}",
-            input.name,
-            input.input_type
+            input.name(),
+            input.dtype()
         );
     }
-    for output in &session.outputs {
+    for output in session.outputs() {
         log::info!(
             "Model output: name={}, type={:?}",
-            output.name,
-            output.output_type
+            output.name(),
+            output.dtype()
         );
     }
 
@@ -161,7 +161,7 @@ pub fn resolve_model_path(
 /// Read a custom metadata string from an ONNX session.
 pub fn read_metadata_str(session: &Session, key: &str) -> Result<Option<String>, ort::Error> {
     let meta = session.metadata()?;
-    meta.custom(key)
+    Ok(meta.custom(key).filter(|s| !s.is_empty()))
 }
 
 /// Read a custom metadata i32 value, with optional default.
