@@ -46,8 +46,9 @@ use crate::TranscribeError;
 /// - Channels: 1 (mono)
 /// - Format: PCM integer samples
 pub fn read_wav_samples(wav_path: &Path) -> Result<Vec<f32>, TranscribeError> {
-    let mut reader = hound::WavReader::open(wav_path)
-        .map_err(|e| TranscribeError::Audio(format!("failed to open {}: {}", wav_path.display(), e)))?;
+    let mut reader = hound::WavReader::open(wav_path).map_err(|e| {
+        TranscribeError::Audio(format!("failed to open {}: {}", wav_path.display(), e))
+    })?;
     let spec = reader.spec();
 
     let expected_spec = hound::WavSpec {

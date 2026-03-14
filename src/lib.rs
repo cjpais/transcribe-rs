@@ -89,15 +89,15 @@ pub mod accel;
 pub mod audio;
 pub mod error;
 pub use accel::{
-    OrtAccelerator, get_ort_accelerator, set_ort_accelerator,
-    WhisperAccelerator, get_whisper_accelerator, set_whisper_accelerator,
+    get_ort_accelerator, get_whisper_accelerator, set_ort_accelerator, set_whisper_accelerator,
+    OrtAccelerator, WhisperAccelerator,
 };
 pub use error::TranscribeError;
 
 #[cfg(feature = "audio-features")]
-pub mod features;
-#[cfg(feature = "audio-features")]
 pub mod decode;
+#[cfg(feature = "audio-features")]
+pub mod features;
 #[cfg(feature = "onnx")]
 pub mod onnx;
 

@@ -9,7 +9,9 @@ use std::path::Path;
 
 use crate::onnx::session;
 use crate::onnx::Quantization;
-use crate::{ModelCapabilities, SpeechModel, TranscribeError, TranscribeOptions, TranscriptionResult};
+use crate::{
+    ModelCapabilities, SpeechModel, TranscribeError, TranscribeOptions, TranscriptionResult,
+};
 
 use super::SAMPLE_RATE;
 
@@ -63,9 +65,8 @@ impl StreamingConfig {
         let contents = fs::read_to_string(&config_path)?;
         let json: serde_json::Value = serde_json::from_str(&contents)?;
 
-        let get_usize = |key: &str| -> usize {
-            json.get(key).and_then(|v| v.as_i64()).unwrap_or(0) as usize
-        };
+        let get_usize =
+            |key: &str| -> usize { json.get(key).and_then(|v| v.as_i64()).unwrap_or(0) as usize };
 
         let get_i64 = |key: &str| -> i64 { json.get(key).and_then(|v| v.as_i64()).unwrap_or(0) };
 
@@ -97,7 +98,8 @@ impl StreamingConfig {
 
         if config.depth == 0 || config.decoder_dim == 0 || config.vocab_size == 0 {
             return Err(TranscribeError::Config(
-                "Invalid streaming config: depth, decoder_dim, and vocab_size must be > 0".to_string(),
+                "Invalid streaming config: depth, decoder_dim, and vocab_size must be > 0"
+                    .to_string(),
             ));
         }
 
@@ -232,7 +234,9 @@ impl BinTokenizer {
         }
 
         if tokens_to_bytes.is_empty() {
-            return Err(TranscribeError::Config("No tokens found in tokenizer.bin".to_string()));
+            return Err(TranscribeError::Config(
+                "No tokens found in tokenizer.bin".to_string(),
+            ));
         }
 
         Ok(Self { tokens_to_bytes })
@@ -312,7 +316,9 @@ impl StreamingModel {
                 }
             }
 
-            Err(TranscribeError::ModelNotFound(candidates.into_iter().next().unwrap()))
+            Err(TranscribeError::ModelNotFound(
+                candidates.into_iter().next().unwrap(),
+            ))
         };
 
         let frontend = load("frontend")?;
@@ -366,27 +372,22 @@ impl StreamingModel {
 
         let chunk_len = audio_chunk.len();
 
-        let audio_dyn =
-            ArrayD::from_shape_vec(IxDyn(&[1, chunk_len]), audio_chunk.to_vec())?;
+        let audio_dyn = ArrayD::from_shape_vec(IxDyn(&[1, chunk_len]), audio_chunk.to_vec())?;
 
         let sample_buffer_dyn =
             ArrayD::from_shape_vec(IxDyn(&[1, 79]), state.sample_buffer.clone())?;
 
-        let sample_len_dyn =
-            ArrayD::from_shape_vec(IxDyn(&[1]), vec![state.sample_len])?;
+        let sample_len_dyn = ArrayD::from_shape_vec(IxDyn(&[1]), vec![state.sample_len])?;
 
         let conv1_dyn = ArrayD::from_shape_vec(
             IxDyn(&[1, self.config.d_model_frontend, 4]),
             state.conv1_buffer.clone(),
         )?;
 
-        let conv2_dyn = ArrayD::from_shape_vec(
-            IxDyn(&[1, self.config.c1, 4]),
-            state.conv2_buffer.clone(),
-        )?;
+        let conv2_dyn =
+            ArrayD::from_shape_vec(IxDyn(&[1, self.config.c1, 4]), state.conv2_buffer.clone())?;
 
-        let frame_count_dyn =
-            ArrayD::from_shape_vec(IxDyn(&[1]), vec![state.frame_count])?;
+        let frame_count_dyn = ArrayD::from_shape_vec(IxDyn(&[1]), vec![state.frame_count])?;
 
         let t_audio_chunk = TensorRef::from_array_view(audio_dyn.view())?;
         let t_sample_buffer = TensorRef::from_array_view(sample_buffer_dyn.view())?;
@@ -414,7 +415,8 @@ impl StreamingModel {
         let num_features = feat_shape[1] as i32;
 
         if num_features > 0 {
-            let feat_data = features.as_slice()
+            let feat_data = features
+                .as_slice()
                 .ok_or_else(|| TranscribeError::Inference("features not contiguous".to_string()))?;
             let feat_size = feat_shape[1] * feat_shape[2];
             state
@@ -426,19 +428,25 @@ impl StreamingModel {
         // Update frontend state from outputs
         let sample_buffer_out = outputs
             .get("sample_buffer_out")
-            .ok_or_else(|| TranscribeError::Inference("Missing output: sample_buffer_out".to_string()))?
+            .ok_or_else(|| {
+                TranscribeError::Inference("Missing output: sample_buffer_out".to_string())
+            })?
             .try_extract_array::<f32>()?;
         state.sample_buffer = sample_buffer_out.as_slice().unwrap()[..79].to_vec();
 
         let sample_len_out = outputs
             .get("sample_len_out")
-            .ok_or_else(|| TranscribeError::Inference("Missing output: sample_len_out".to_string()))?
+            .ok_or_else(|| {
+                TranscribeError::Inference("Missing output: sample_len_out".to_string())
+            })?
             .try_extract_array::<i64>()?;
         state.sample_len = sample_len_out.as_slice().unwrap()[0];
 
         let conv1_out = outputs
             .get("conv1_buffer_out")
-            .ok_or_else(|| TranscribeError::Inference("Missing output: conv1_buffer_out".to_string()))?
+            .ok_or_else(|| {
+                TranscribeError::Inference("Missing output: conv1_buffer_out".to_string())
+            })?
             .try_extract_array::<f32>()?;
         let conv1_data = conv1_out.as_slice().unwrap();
         let conv1_expected = self.config.d_model_frontend * 4;
@@ -451,7 +459,9 @@ impl StreamingModel {
 
         let conv2_out = outputs
             .get("conv2_buffer_out")
-            .ok_or_else(|| TranscribeError::Inference("Missing output: conv2_buffer_out".to_string()))?
+            .ok_or_else(|| {
+                TranscribeError::Inference("Missing output: conv2_buffer_out".to_string())
+            })?
             .try_extract_array::<f32>()?;
         let conv2_data = conv2_out.as_slice().unwrap();
         let conv2_expected = self.config.c1 * 4;
@@ -464,7 +474,9 @@ impl StreamingModel {
 
         let frame_count_out = outputs
             .get("frame_count_out")
-            .ok_or_else(|| TranscribeError::Inference("Missing output: frame_count_out".to_string()))?
+            .ok_or_else(|| {
+                TranscribeError::Inference("Missing output: frame_count_out".to_string())
+            })?
             .try_extract_array::<i64>()?;
         state.frame_count = frame_count_out.as_slice().unwrap()[0];
 
@@ -519,7 +531,8 @@ impl StreamingModel {
 
         let enc_shape = encoded.shape();
         let total_encoded = enc_shape[1] as i32;
-        let encoded_data = encoded.as_slice()
+        let encoded_data = encoded
+            .as_slice()
             .ok_or_else(|| TranscribeError::Inference("encoded not contiguous".to_string()))?;
 
         let slice_start = (state.encoder_frames_emitted - window_start) as usize;
@@ -546,8 +559,7 @@ impl StreamingModel {
         )?;
 
         let pos_offset_val = [state.adapter_pos_offset];
-        let pos_offset_view =
-            ArrayViewD::from_shape(IxDyn(&[1]), &pos_offset_val)?;
+        let pos_offset_view = ArrayViewD::from_shape(IxDyn(&[1]), &pos_offset_val)?;
 
         let t_encoded = TensorRef::from_array_view(enc_slice_view)?;
         let t_pos_offset = TensorRef::from_array_view(pos_offset_view)?;
@@ -563,7 +575,8 @@ impl StreamingModel {
             .ok_or_else(|| TranscribeError::Inference("Missing output: memory".to_string()))?
             .try_extract_array::<f32>()?;
 
-        let mem_data = memory_out.as_slice()
+        let mem_data = memory_out
+            .as_slice()
             .ok_or_else(|| TranscribeError::Inference("memory not contiguous".to_string()))?;
         let mem_size = new_frames as usize * self.config.decoder_dim;
         state.memory.extend_from_slice(&mem_data[..mem_size]);
@@ -576,12 +589,11 @@ impl StreamingModel {
         Ok(new_frames)
     }
 
-    fn compute_cross_kv(
-        &mut self,
-        state: &mut StreamingState,
-    ) -> Result<(), TranscribeError> {
+    fn compute_cross_kv(&mut self, state: &mut StreamingState) -> Result<(), TranscribeError> {
         if state.memory_len == 0 {
-            return Err(TranscribeError::Inference("Memory is empty, cannot compute cross K/V".to_string()));
+            return Err(TranscribeError::Inference(
+                "Memory is empty, cannot compute cross K/V".to_string(),
+            ));
         }
 
         let memory_view = ArrayViewD::from_shape(
@@ -687,10 +699,8 @@ impl StreamingModel {
             .try_extract_array::<f32>()?;
 
         let new_cache_len = k_self_out.shape()[3] as i32;
-        let new_cache_size = self.config.depth
-            * self.config.nheads
-            * new_cache_len as usize
-            * self.config.head_dim;
+        let new_cache_size =
+            self.config.depth * self.config.nheads * new_cache_len as usize * self.config.head_dim;
 
         let k_src = &k_self_out.as_slice().unwrap()[..new_cache_size];
         let v_src = &v_self_out.as_slice().unwrap()[..new_cache_size];

@@ -26,12 +26,23 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
-use crate::{ModelCapabilities, SpeechModel, TranscribeError, TranscribeOptions, TranscriptionResult, TranscriptionSegment};
 use crate::accel::get_whisper_accelerator;
+use crate::{
+    ModelCapabilities, SpeechModel, TranscribeError, TranscribeOptions, TranscriptionResult,
+    TranscriptionSegment,
+};
 use std::path::Path;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
-const MULTILINGUAL_LANGUAGES: &[&str] = &["en", "zh", "de", "es", "ru", "ko", "fr", "ja", "pt", "tr", "pl", "ca", "nl", "ar", "sv", "it", "id", "hi", "fi", "vi", "he", "uk", "el", "ms", "cs", "ro", "da", "hu", "ta", "no", "th", "ur", "hr", "bg", "lt", "la", "mi", "ml", "cy", "sk", "te", "fa", "lv", "bn", "sr", "az", "sl", "kn", "et", "mk", "br", "eu", "is", "hy", "ne", "mn", "bs", "kk", "sq", "sw", "gl", "mr", "pa", "si", "km", "sn", "yo", "so", "af", "oc", "ka", "be", "tg", "sd", "gu", "am", "yi", "lo", "uz", "fo", "ht", "ps", "tk", "nn", "mt", "sa", "lb", "my", "bo", "tl", "mg", "as", "tt", "haw", "ln", "ha", "ba", "jw", "su", "yue"];
+const MULTILINGUAL_LANGUAGES: &[&str] = &[
+    "en", "zh", "de", "es", "ru", "ko", "fr", "ja", "pt", "tr", "pl", "ca", "nl", "ar", "sv", "it",
+    "id", "hi", "fi", "vi", "he", "uk", "el", "ms", "cs", "ro", "da", "hu", "ta", "no", "th", "ur",
+    "hr", "bg", "lt", "la", "mi", "ml", "cy", "sk", "te", "fa", "lv", "bn", "sr", "az", "sl", "kn",
+    "et", "mk", "br", "eu", "is", "hy", "ne", "mn", "bs", "kk", "sq", "sw", "gl", "mr", "pa", "si",
+    "km", "sn", "yo", "so", "af", "oc", "ka", "be", "tg", "sd", "gu", "am", "yi", "lo", "uz", "fo",
+    "ht", "ps", "tk", "nn", "mt", "sa", "lb", "my", "bo", "tl", "mg", "as", "tt", "haw", "ln",
+    "ha", "ba", "jw", "su", "yue",
+];
 const ENGLISH_ONLY_LANGUAGES: &[&str] = &["en"];
 
 /// Parameters for configuring Whisper model loading.
@@ -128,11 +139,8 @@ impl WhisperEngine {
 
         let mut context_params = WhisperContextParameters::default();
         context_params.use_gpu = params.use_gpu;
-        let context = WhisperContext::new_with_params(
-            model_path.to_str().unwrap(),
-            context_params,
-        )
-        .map_err(|e| TranscribeError::Inference(e.to_string()))?;
+        let context = WhisperContext::new_with_params(model_path.to_str().unwrap(), context_params)
+            .map_err(|e| TranscribeError::Inference(e.to_string()))?;
 
         let is_multilingual = context.is_multilingual();
 
@@ -140,7 +148,11 @@ impl WhisperEngine {
             .create_state()
             .map_err(|e| TranscribeError::Inference(e.to_string()))?;
 
-        Ok(Self { state, context, is_multilingual })
+        Ok(Self {
+            state,
+            context,
+            is_multilingual,
+        })
     }
 
     /// Transcribe with model-specific parameters.
@@ -179,7 +191,8 @@ impl WhisperEngine {
             .full(full_params, samples)
             .map_err(|e| TranscribeError::Inference(e.to_string()))?;
 
-        let num_segments = self.state
+        let num_segments = self
+            .state
             .full_n_segments()
             .map_err(|e| TranscribeError::Inference(e.to_string()))?;
 
@@ -187,17 +200,20 @@ impl WhisperEngine {
         let mut full_text = String::new();
 
         for i in 0..num_segments {
-            let text = self.state
+            let text = self
+                .state
                 .full_get_segment_text(i)
                 .map_err(|e| TranscribeError::Inference(e.to_string()))?;
-            let start = self.state
-                .full_get_segment_t0(i)
-                .map_err(|e| TranscribeError::Inference(e.to_string()))? as f32
-                / 100.0;
-            let end = self.state
-                .full_get_segment_t1(i)
-                .map_err(|e| TranscribeError::Inference(e.to_string()))? as f32
-                / 100.0;
+            let start =
+                self.state
+                    .full_get_segment_t0(i)
+                    .map_err(|e| TranscribeError::Inference(e.to_string()))? as f32
+                    / 100.0;
+            let end =
+                self.state
+                    .full_get_segment_t1(i)
+                    .map_err(|e| TranscribeError::Inference(e.to_string()))? as f32
+                    / 100.0;
 
             segments.push(TranscriptionSegment {
                 start,
@@ -220,7 +236,11 @@ impl SpeechModel for WhisperEngine {
             name: "Whisper",
             engine_id: "whisper_cpp",
             sample_rate: 16000,
-            languages: if self.is_multilingual { MULTILINGUAL_LANGUAGES } else { ENGLISH_ONLY_LANGUAGES },
+            languages: if self.is_multilingual {
+                MULTILINGUAL_LANGUAGES
+            } else {
+                ENGLISH_ONLY_LANGUAGES
+            },
             supports_timestamps: true,
             supports_translation: self.is_multilingual,
             supports_streaming: false,

@@ -5,12 +5,14 @@ use ort::value::TensorRef;
 use std::collections::HashMap;
 use std::path::Path;
 
+use super::session;
+use super::Quantization;
 use crate::decode::{ctc_greedy_decode, CtcDecoderResult, SymbolTable};
 use crate::features::{apply_cmvn, apply_lfr, compute_mel, MelConfig, WindowType};
 use crate::TranscribeError;
-use super::session;
-use super::Quantization;
-use crate::{ModelCapabilities, SpeechModel, TranscribeOptions, TranscriptionResult, TranscriptionSegment};
+use crate::{
+    ModelCapabilities, SpeechModel, TranscribeOptions, TranscriptionResult, TranscriptionSegment,
+};
 
 const CAPABILITIES: ModelCapabilities = ModelCapabilities {
     name: "SenseVoice",
@@ -97,59 +99,69 @@ impl SenseVoiceModel {
 
     fn parse_metadata(session: &Session) -> Result<SenseVoiceMetadata, TranscribeError> {
         let comment = session::read_metadata_str(session, "comment")
-            .map_err(|e| TranscribeError::Config(format!("failed to read metadata 'comment': {}", e)))?
+            .map_err(|e| {
+                TranscribeError::Config(format!("failed to read metadata 'comment': {}", e))
+            })?
             .unwrap_or_default();
         let is_funasr_nano = comment.contains("Nano");
 
-        let vocab_size = session::read_metadata_i32(session, "vocab_size", None)?
-            .ok_or_else(|| TranscribeError::Config("Missing required metadata key: vocab_size".into()))?;
+        let vocab_size =
+            session::read_metadata_i32(session, "vocab_size", None)?.ok_or_else(|| {
+                TranscribeError::Config("Missing required metadata key: vocab_size".into())
+            })?;
         let blank_id = session::read_metadata_i32(session, "blank_id", Some(0))?.unwrap();
-        let lfr_window_size = session::read_metadata_i32(session, "lfr_window_size", Some(7))?.unwrap() as usize;
-        let lfr_window_shift = session::read_metadata_i32(session, "lfr_window_shift", Some(6))?.unwrap() as usize;
-        let normalize_samples_int = session::read_metadata_i32(session, "normalize_samples", Some(0))?.unwrap();
+        let lfr_window_size =
+            session::read_metadata_i32(session, "lfr_window_size", Some(7))?.unwrap() as usize;
+        let lfr_window_shift =
+            session::read_metadata_i32(session, "lfr_window_shift", Some(6))?.unwrap() as usize;
+        let normalize_samples_int =
+            session::read_metadata_i32(session, "normalize_samples", Some(0))?.unwrap();
 
-        let (with_itn_id, without_itn_id, lang2id, neg_mean_vec, inv_stddev_vec) =
-            if is_funasr_nano {
-                (14, 15, HashMap::new(), Vec::new(), Vec::new())
-            } else {
-                let with_itn_id = session::read_metadata_i32(session, "with_itn", Some(14))?.unwrap();
-                let without_itn_id = session::read_metadata_i32(session, "without_itn", Some(15))?.unwrap();
+        let (with_itn_id, without_itn_id, lang2id, neg_mean_vec, inv_stddev_vec) = if is_funasr_nano
+        {
+            (14, 15, HashMap::new(), Vec::new(), Vec::new())
+        } else {
+            let with_itn_id = session::read_metadata_i32(session, "with_itn", Some(14))?.unwrap();
+            let without_itn_id =
+                session::read_metadata_i32(session, "without_itn", Some(15))?.unwrap();
 
-                let mut lang2id = HashMap::new();
-                for (lang, key) in [
-                    ("auto", "lang_auto"),
-                    ("zh", "lang_zh"),
-                    ("en", "lang_en"),
-                    ("ja", "lang_ja"),
-                    ("ko", "lang_ko"),
-                    ("yue", "lang_yue"),
-                ] {
-                    if let Some(id) = session::read_metadata_i32(session, key, None)? {
-                        lang2id.insert(lang.to_string(), id);
-                    }
+            let mut lang2id = HashMap::new();
+            for (lang, key) in [
+                ("auto", "lang_auto"),
+                ("zh", "lang_zh"),
+                ("en", "lang_en"),
+                ("ja", "lang_ja"),
+                ("ko", "lang_ko"),
+                ("yue", "lang_yue"),
+            ] {
+                if let Some(id) = session::read_metadata_i32(session, key, None)? {
+                    lang2id.insert(lang.to_string(), id);
                 }
-                if lang2id.is_empty() {
-                    lang2id = HashMap::from([
-                        ("auto".to_string(), 0),
-                        ("zh".to_string(), 3),
-                        ("en".to_string(), 4),
-                        ("yue".to_string(), 7),
-                        ("ja".to_string(), 11),
-                        ("ko".to_string(), 12),
-                    ]);
-                }
+            }
+            if lang2id.is_empty() {
+                lang2id = HashMap::from([
+                    ("auto".to_string(), 0),
+                    ("zh".to_string(), 3),
+                    ("en".to_string(), 4),
+                    ("yue".to_string(), 7),
+                    ("ja".to_string(), 11),
+                    ("ko".to_string(), 12),
+                ]);
+            }
 
-                let neg_mean_vec = session::read_metadata_float_vec(session, "neg_mean")?.unwrap_or_default();
-                let inv_stddev_vec = session::read_metadata_float_vec(session, "inv_stddev")?.unwrap_or_default();
+            let neg_mean_vec =
+                session::read_metadata_float_vec(session, "neg_mean")?.unwrap_or_default();
+            let inv_stddev_vec =
+                session::read_metadata_float_vec(session, "inv_stddev")?.unwrap_or_default();
 
-                (
-                    with_itn_id,
-                    without_itn_id,
-                    lang2id,
-                    neg_mean_vec,
-                    inv_stddev_vec,
-                )
-            };
+            (
+                with_itn_id,
+                without_itn_id,
+                lang2id,
+                neg_mean_vec,
+                inv_stddev_vec,
+            )
+        };
 
         Ok(SenseVoiceMetadata {
             vocab_size,
@@ -266,9 +278,10 @@ impl SenseVoiceModel {
         let meta = &self.metadata;
         let num_frames = features.nrows() as i32;
 
-        let feat_3d = features
-            .to_owned()
-            .into_shape_with_order((1, features.nrows(), features.ncols()))?;
+        let feat_3d =
+            features
+                .to_owned()
+                .into_shape_with_order((1, features.nrows(), features.ncols()))?;
 
         let x_length = ndarray::arr1(&[num_frames]);
 
@@ -317,9 +330,10 @@ impl SenseVoiceModel {
         &mut self,
         features: &ndarray::ArrayView2<f32>,
     ) -> Result<ndarray::Array3<f32>, TranscribeError> {
-        let feat_3d = features
-            .to_owned()
-            .into_shape_with_order((1, features.nrows(), features.ncols()))?;
+        let feat_3d =
+            features
+                .to_owned()
+                .into_shape_with_order((1, features.nrows(), features.ncols()))?;
 
         let feat_dyn = feat_3d.into_dyn();
 
@@ -336,10 +350,7 @@ impl SenseVoiceModel {
         Ok(logits_owned)
     }
 
-    fn convert_result(
-        &self,
-        decoder_result: &CtcDecoderResult,
-    ) -> TranscriptionResult {
+    fn convert_result(&self, decoder_result: &CtcDecoderResult) -> TranscriptionResult {
         let meta = &self.metadata;
         let tokens = &decoder_result.tokens;
         let timestamps = &decoder_result.timestamps;

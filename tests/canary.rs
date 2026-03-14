@@ -29,7 +29,10 @@ fn test_canary_v2_transcribe() {
         .expect("Failed to transcribe");
 
     assert!(
-        result.text.to_lowercase().contains("ask not what your country can do for you"),
+        result
+            .text
+            .to_lowercase()
+            .contains("ask not what your country can do for you"),
         "Expected JFK quote, got: '{}'",
         result.text
     );
@@ -44,8 +47,7 @@ fn test_canary_v2_variant_detection() {
         return;
     }
 
-    let model =
-        CanaryModel::load(&model_dir, &Quantization::Int8).expect("Failed to load model");
+    let model = CanaryModel::load(&model_dir, &Quantization::Int8).expect("Failed to load model");
 
     let caps = model.capabilities();
     assert_eq!(caps.name, "Canary 1B v2");
@@ -187,10 +189,7 @@ fn test_canary_v2_translation() {
         )
         .expect("Failed to transcribe");
 
-    assert!(
-        !result.text.is_empty(),
-        "Translation should produce output"
-    );
+    assert!(!result.text.is_empty(), "Translation should produce output");
 
     // The output should be English, not German
     // (basic heuristic: English text shouldn't contain common German-only characters/words)
@@ -328,7 +327,10 @@ fn test_canary_flash_transcribe() {
         .expect("Failed to transcribe");
 
     assert!(
-        result.text.to_lowercase().contains("ask not what your country can do for you"),
+        result
+            .text
+            .to_lowercase()
+            .contains("ask not what your country can do for you"),
         "Expected JFK quote, got: '{}'",
         result.text
     );
@@ -343,8 +345,7 @@ fn test_canary_flash_variant_detection() {
         return;
     }
 
-    let model =
-        CanaryModel::load(&model_dir, &Quantization::Int8).expect("Failed to load model");
+    let model = CanaryModel::load(&model_dir, &Quantization::Int8).expect("Failed to load model");
 
     let caps = model.capabilities();
     assert_eq!(caps.name, "Canary Flash");

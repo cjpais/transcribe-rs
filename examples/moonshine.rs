@@ -25,7 +25,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Loading model: {:?}", model_path);
 
     let load_start = Instant::now();
-    let mut model = MoonshineModel::load(&model_path, MoonshineVariant::Base, &Quantization::default())?;
+    let mut model = MoonshineModel::load(
+        &model_path,
+        MoonshineVariant::Base,
+        &Quantization::default(),
+    )?;
     let load_duration = load_start.elapsed();
     println!("Model loaded in {:.2?}", load_duration);
 

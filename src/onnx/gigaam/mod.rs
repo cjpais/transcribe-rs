@@ -3,12 +3,12 @@ use ort::session::Session;
 use ort::value::TensorRef;
 use std::path::Path;
 
-use crate::decode::{ctc_greedy_decode, sentencepiece_to_text};
-use crate::decode::tokens::load_vocab;
-use crate::features::{compute_mel, MelConfig, WindowType};
-use crate::TranscribeError;
 use super::session;
 use super::Quantization;
+use crate::decode::tokens::load_vocab;
+use crate::decode::{ctc_greedy_decode, sentencepiece_to_text};
+use crate::features::{compute_mel, MelConfig, WindowType};
+use crate::TranscribeError;
 use crate::{ModelCapabilities, SpeechModel, TranscribeOptions, TranscriptionResult};
 
 const CAPABILITIES: ModelCapabilities = ModelCapabilities {
@@ -89,10 +89,7 @@ impl GigaAMModel {
         self.infer(samples)
     }
 
-    fn infer(
-        &mut self,
-        samples: &[f32],
-    ) -> Result<TranscriptionResult, TranscribeError> {
+    fn infer(&mut self, samples: &[f32]) -> Result<TranscriptionResult, TranscribeError> {
         if samples.len() < self.mel_config.n_fft {
             return Ok(TranscriptionResult {
                 text: String::new(),
@@ -144,7 +141,11 @@ impl GigaAMModel {
                 let idx = id as usize;
                 if idx < self.vocab.len() {
                     let token = self.vocab[idx].as_str();
-                    if token == "<unk>" { None } else { Some(token) }
+                    if token == "<unk>" {
+                        None
+                    } else {
+                        Some(token)
+                    }
                 } else {
                     None
                 }

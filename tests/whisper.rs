@@ -87,8 +87,8 @@ fn test_prompt_product_names() {
     println!("{}", baseline_result.text);
 
     let glossary_prompt = "QuirkQuid Quill Inc, P3-Quattro, O3-Omni, B3-BondX, E3-Equity, W3-WrapZ, O2-Outlier, U3-UniFund, M3-Mover";
-    let samples = transcribe_rs::audio::read_wav_samples(&audio_path)
-        .expect("Failed to read audio samples");
+    let samples =
+        transcribe_rs::audio::read_wav_samples(&audio_path).expect("Failed to read audio samples");
     let prompted_result = engine
         .transcribe_with(
             &samples,

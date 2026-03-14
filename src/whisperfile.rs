@@ -4,13 +4,24 @@
 //! for speech-to-text conversion. The engine manages the whisperfile server
 //! lifecycle automatically.
 
-use crate::{ModelCapabilities, SpeechModel, TranscribeError, TranscribeOptions, TranscriptionResult, TranscriptionSegment};
+use crate::{
+    ModelCapabilities, SpeechModel, TranscribeError, TranscribeOptions, TranscriptionResult,
+    TranscriptionSegment,
+};
 
 const CAPABILITIES: ModelCapabilities = ModelCapabilities {
     name: "Whisperfile",
     engine_id: "whisperfile",
     sample_rate: 16000,
-    languages: &["en", "zh", "de", "es", "ru", "ko", "fr", "ja", "pt", "tr", "pl", "ca", "nl", "ar", "sv", "it", "id", "hi", "fi", "vi", "he", "uk", "el", "ms", "cs", "ro", "da", "hu", "ta", "no", "th", "ur", "hr", "bg", "lt", "la", "mi", "ml", "cy", "sk", "te", "fa", "lv", "bn", "sr", "az", "sl", "kn", "et", "mk", "br", "eu", "is", "hy", "ne", "mn", "bs", "kk", "sq", "sw", "gl", "mr", "pa", "si", "km", "sn", "yo", "so", "af", "oc", "ka", "be", "tg", "sd", "gu", "am", "yi", "lo", "uz", "fo", "ht", "ps", "tk", "nn", "mt", "sa", "lb", "my", "bo", "tl", "mg", "as", "tt", "haw", "ln", "ha", "ba", "jw", "su", "yue"],
+    languages: &[
+        "en", "zh", "de", "es", "ru", "ko", "fr", "ja", "pt", "tr", "pl", "ca", "nl", "ar", "sv",
+        "it", "id", "hi", "fi", "vi", "he", "uk", "el", "ms", "cs", "ro", "da", "hu", "ta", "no",
+        "th", "ur", "hr", "bg", "lt", "la", "mi", "ml", "cy", "sk", "te", "fa", "lv", "bn", "sr",
+        "az", "sl", "kn", "et", "mk", "br", "eu", "is", "hy", "ne", "mn", "bs", "kk", "sq", "sw",
+        "gl", "mr", "pa", "si", "km", "sn", "yo", "so", "af", "oc", "ka", "be", "tg", "sd", "gu",
+        "am", "yi", "lo", "uz", "fo", "ht", "ps", "tk", "nn", "mt", "sa", "lb", "my", "bo", "tl",
+        "mg", "as", "tt", "haw", "ln", "ha", "ba", "jw", "su", "yue",
+    ],
     supports_timestamps: true,
     supports_translation: true,
     supports_streaming: false,
@@ -213,10 +224,7 @@ impl WhisperfileEngine {
         params: WhisperfileLoadParams,
     ) -> Result<Self, TranscribeError> {
         if !binary_path.exists() {
-            warn!(
-                "Whisperfile binary not found: {}",
-                binary_path.display()
-            );
+            warn!("Whisperfile binary not found: {}", binary_path.display());
             return Err(TranscribeError::ModelNotFound(binary_path.to_path_buf()));
         }
 
@@ -445,10 +453,15 @@ impl WhisperfileEngine {
         if !status.is_success() {
             let body = response.into_body().read_to_string().unwrap_or_default();
             error!("Whisperfile server error {}: {}", status, body);
-            return Err(TranscribeError::Inference(format!("Whisperfile server error {}: {}", status, body)));
+            return Err(TranscribeError::Inference(format!(
+                "Whisperfile server error {}: {}",
+                status, body
+            )));
         }
 
-        let json_response = response.into_body().read_to_string()
+        let json_response = response
+            .into_body()
+            .read_to_string()
             .map_err(|e| TranscribeError::Inference(e.to_string()))?;
         let whisperfile_output: WhisperfileOutput = serde_json::from_str(&json_response)
             .map_err(|e| TranscribeError::Inference(e.to_string()))?;

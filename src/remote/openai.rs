@@ -49,7 +49,9 @@ use async_openai::{
 use async_trait::async_trait;
 use derive_builder::Builder;
 
-use crate::{RemoteTranscriptionEngine, TranscribeError, TranscriptionResult, TranscriptionSegment};
+use crate::{
+    RemoteTranscriptionEngine, TranscribeError, TranscriptionResult, TranscriptionSegment,
+};
 
 #[derive(Debug)]
 pub struct OpenAIEngine<T>
@@ -181,10 +183,15 @@ where
             OpenAIModel::Gpt4oMiniTranscribe | OpenAIModel::Gpt4oTranscribe => {
                 request.response_format(async_openai::types::AudioResponseFormat::Json);
 
-                let request = request.build()
+                let request = request
+                    .build()
                     .map_err(|e| TranscribeError::Inference(e.to_string()))?;
 
-                let response = self.client.audio().transcribe(request).await
+                let response = self
+                    .client
+                    .audio()
+                    .transcribe(request)
+                    .await
                     .map_err(|e| TranscribeError::Inference(e.to_string()))?;
 
                 return Ok(TranscriptionResult {
@@ -201,10 +208,15 @@ where
                     request.timestamp_granularities(vec![timestamp_granularity.clone()]);
                 }
 
-                let request = request.build()
+                let request = request
+                    .build()
                     .map_err(|e| TranscribeError::Inference(e.to_string()))?;
 
-                let response = self.client.audio().transcribe_verbose_json(request).await
+                let response = self
+                    .client
+                    .audio()
+                    .transcribe_verbose_json(request)
+                    .await
                     .map_err(|e| TranscribeError::Inference(e.to_string()))?;
 
                 let segments = match params.timestamp_granularity {

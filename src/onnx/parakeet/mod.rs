@@ -6,10 +6,13 @@ use ort::value::TensorRef;
 use regex::Regex;
 use std::path::Path;
 
-use crate::decode::tokens::load_vocab;
 use super::session;
 use super::Quantization;
-use crate::{ModelCapabilities, SpeechModel, TranscribeError, TranscribeOptions, TranscriptionResult, TranscriptionSegment};
+use crate::decode::tokens::load_vocab;
+use crate::{
+    ModelCapabilities, SpeechModel, TranscribeError, TranscribeOptions, TranscriptionResult,
+    TranscriptionSegment,
+};
 
 /// Timestamp granularity for Parakeet output.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -89,10 +92,7 @@ pub struct ParakeetModel {
 }
 
 impl ParakeetModel {
-    pub fn load(
-        model_dir: &Path,
-        quantization: &Quantization,
-    ) -> Result<Self, TranscribeError> {
+    pub fn load(model_dir: &Path, quantization: &Quantization) -> Result<Self, TranscribeError> {
         let encoder_path = session::resolve_model_path(model_dir, "encoder-model", quantization);
         let decoder_path =
             session::resolve_model_path(model_dir, "decoder_joint-model", quantization);
@@ -134,10 +134,7 @@ impl ParakeetModel {
         samples: &[f32],
         params: &ParakeetParams,
     ) -> Result<TranscriptionResult, TranscribeError> {
-        let granularity = params
-            .timestamp_granularity
-            .clone()
-            .unwrap_or_default();
+        let granularity = params.timestamp_granularity.clone().unwrap_or_default();
 
         self.infer(samples, &granularity)
     }
@@ -200,7 +197,9 @@ impl ParakeetModel {
             .try_extract_array()?;
         let encoded_lengths = outputs
             .get("encoded_lengths")
-            .ok_or_else(|| TranscribeError::Inference("Missing output: encoded_lengths".to_string()))?
+            .ok_or_else(|| {
+                TranscribeError::Inference("Missing output: encoded_lengths".to_string())
+            })?
             .try_extract_array()?;
 
         let encoder_output = encoder_output.permuted_axes(IxDyn(&[0, 2, 1]));
@@ -217,7 +216,11 @@ impl ParakeetModel {
             .ok_or_else(|| TranscribeError::Inference("Missing input: input_states_1".to_string()))?
             .input_type
             .tensor_shape()
-            .ok_or_else(|| TranscribeError::Inference("Failed to get tensor shape for input_states_1".to_string()))?;
+            .ok_or_else(|| {
+                TranscribeError::Inference(
+                    "Failed to get tensor shape for input_states_1".to_string(),
+                )
+            })?;
 
         let state2_shape = inputs
             .iter()
@@ -225,19 +228,15 @@ impl ParakeetModel {
             .ok_or_else(|| TranscribeError::Inference("Missing input: input_states_2".to_string()))?
             .input_type
             .tensor_shape()
-            .ok_or_else(|| TranscribeError::Inference("Failed to get tensor shape for input_states_2".to_string()))?;
+            .ok_or_else(|| {
+                TranscribeError::Inference(
+                    "Failed to get tensor shape for input_states_2".to_string(),
+                )
+            })?;
 
-        let state1 = Array::zeros((
-            state1_shape[0] as usize,
-            1,
-            state1_shape[2] as usize,
-        ));
+        let state1 = Array::zeros((state1_shape[0] as usize, 1, state1_shape[2] as usize));
 
-        let state2 = Array::zeros((
-            state2_shape[0] as usize,
-            1,
-            state2_shape[2] as usize,
-        ));
+        let state2 = Array::zeros((state2_shape[0] as usize, 1, state2_shape[2] as usize));
 
         Ok((state1, state2))
     }
@@ -278,11 +277,15 @@ impl ParakeetModel {
             .try_extract_array()?;
         let state1 = outputs
             .get("output_states_1")
-            .ok_or_else(|| TranscribeError::Inference("Missing output: output_states_1".to_string()))?
+            .ok_or_else(|| {
+                TranscribeError::Inference("Missing output: output_states_1".to_string())
+            })?
             .try_extract_array()?;
         let state2 = outputs
             .get("output_states_2")
-            .ok_or_else(|| TranscribeError::Inference("Missing output: output_states_2".to_string()))?
+            .ok_or_else(|| {
+                TranscribeError::Inference("Missing output: output_states_2".to_string())
+            })?
             .try_extract_array()?;
 
         let logits = logits.remove_axis(ndarray::Axis(0));
@@ -331,7 +334,8 @@ impl ParakeetModel {
             let (probs, new_state) =
                 self.decode_step(&tokens, &prev_state, &encoder_step_dyn.view())?;
 
-            let vocab_logits_slice = probs.as_slice()
+            let vocab_logits_slice = probs
+                .as_slice()
                 .ok_or_else(|| TranscribeError::Inference("Logits not contiguous".to_string()))?;
 
             let vocab_logits = if probs.len() > self.vocab_size {

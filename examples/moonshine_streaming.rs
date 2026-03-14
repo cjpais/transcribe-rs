@@ -36,7 +36,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let model_path = match args.get(1).map(|s| s.as_str()) {
-        None | Some("tiny") => PathBuf::from("models/moonshine-streaming/moonshine-tiny-streaming-en"),
+        None | Some("tiny") => {
+            PathBuf::from("models/moonshine-streaming/moonshine-tiny-streaming-en")
+        }
         Some("small") => PathBuf::from("models/moonshine-streaming/moonshine-small-streaming-en"),
         Some("medium") => PathBuf::from("models/moonshine-streaming/moonshine-medium-streaming-en"),
         Some(path) => PathBuf::from(path),

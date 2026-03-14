@@ -220,7 +220,13 @@ fn test_language_parameter() {
     let audio_path = PathBuf::from("samples/jfk.wav");
 
     let result = engine
-        .transcribe_file(&audio_path, &transcribe_rs::TranscribeOptions { language: Some("en".to_string()), ..Default::default() })
+        .transcribe_file(
+            &audio_path,
+            &transcribe_rs::TranscribeOptions {
+                language: Some("en".to_string()),
+                ..Default::default()
+            },
+        )
         .expect("Failed to transcribe with language parameter");
 
     assert!(!result.text.is_empty(), "Transcription should not be empty");

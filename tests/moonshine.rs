@@ -15,9 +15,12 @@ fn test_moonshine_base_jfk() {
         return;
     }
 
-    let mut model =
-        MoonshineModel::load(&model_path, MoonshineVariant::Base, &Quantization::default())
-            .expect("Failed to load model");
+    let mut model = MoonshineModel::load(
+        &model_path,
+        MoonshineVariant::Base,
+        &Quantization::default(),
+    )
+    .expect("Failed to load model");
 
     let result = model
         .transcribe_file(&audio_path, &transcribe_rs::TranscribeOptions::default())

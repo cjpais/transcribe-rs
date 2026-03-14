@@ -244,9 +244,18 @@ mod tests {
 
     #[test]
     fn ort_parse_aliases() {
-        assert_eq!("dml".parse::<OrtAccelerator>().unwrap(), OrtAccelerator::DirectMl);
-        assert_eq!("CPU".parse::<OrtAccelerator>().unwrap(), OrtAccelerator::CpuOnly);
-        assert_eq!("cpu_only".parse::<OrtAccelerator>().unwrap(), OrtAccelerator::CpuOnly);
+        assert_eq!(
+            "dml".parse::<OrtAccelerator>().unwrap(),
+            OrtAccelerator::DirectMl
+        );
+        assert_eq!(
+            "CPU".parse::<OrtAccelerator>().unwrap(),
+            OrtAccelerator::CpuOnly
+        );
+        assert_eq!(
+            "cpu_only".parse::<OrtAccelerator>().unwrap(),
+            OrtAccelerator::CpuOnly
+        );
     }
 
     #[test]
