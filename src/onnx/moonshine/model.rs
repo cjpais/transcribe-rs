@@ -69,10 +69,16 @@ impl MoonshineModel {
         log::info!("Loading Moonshine decoder from {:?}...", decoder_path);
         let decoder = session::create_session(&decoder_path)?;
 
-        let encoder_input_names: Vec<String> =
-            encoder.inputs().iter().map(|i| i.name().to_string()).collect();
-        let decoder_input_names: Vec<String> =
-            decoder.inputs().iter().map(|i| i.name().to_string()).collect();
+        let encoder_input_names: Vec<String> = encoder
+            .inputs()
+            .iter()
+            .map(|i| i.name().to_string())
+            .collect();
+        let decoder_input_names: Vec<String> = decoder
+            .inputs()
+            .iter()
+            .map(|i| i.name().to_string())
+            .collect();
 
         let tokenizer = MoonshineTokenizer::new(model_dir)?;
 
