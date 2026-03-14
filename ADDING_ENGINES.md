@@ -363,3 +363,4 @@ When adding a new engine family, also:
 - [ ] `#[cfg(feature = "...")]` guard in `lib.rs`
 - [ ] `From` impl in `error.rs` for runtime error type (if applicable)
 - [ ] `PORTING.md` in the engine directory
+- [ ] If the engine supports GPU, integrate with the accelerator system in `src/accel.rs` (add an enum, global preference, and wire it into session/model creation)

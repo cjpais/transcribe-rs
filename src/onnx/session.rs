@@ -125,7 +125,10 @@ pub fn create_session(path: &Path) -> Result<Session, ort::Error> {
 }
 
 /// Create an ONNX session with configurable thread count.
-pub fn create_session_with_threads(path: &Path, num_threads: usize) -> Result<Session, ort::Error> {
+pub fn create_session_with_threads(
+    path: &Path,
+    num_threads: usize,
+) -> Result<Session, ort::Error> {
     build_session(path, Some(num_threads), true)
 }
 
@@ -133,11 +136,7 @@ pub fn create_session_with_threads(path: &Path, num_threads: usize) -> Result<Se
 ///
 /// Looks for `{name}.{suffix}.onnx` based on the quantization variant,
 /// falling back to `{name}.onnx` (FP32) if the requested file doesn't exist.
-pub fn resolve_model_path(
-    dir: &Path,
-    name: &str,
-    quantization: &super::Quantization,
-) -> std::path::PathBuf {
+pub fn resolve_model_path(dir: &Path, name: &str, quantization: &super::Quantization) -> std::path::PathBuf {
     let suffix = match quantization {
         super::Quantization::FP32 => None,
         super::Quantization::FP16 => Some("fp16"),
@@ -150,19 +149,17 @@ pub fn resolve_model_path(
             log::info!("Loading {} model: {}", suffix, path.display());
             return path;
         }
-        log::warn!(
-            "{} model not found at {}, falling back to {}.onnx",
-            suffix,
-            path.display(),
-            name
-        );
+        log::warn!("{} model not found at {}, falling back to {}.onnx", suffix, path.display(), name);
     }
 
     dir.join(format!("{}.onnx", name))
 }
 
 /// Read a custom metadata string from an ONNX session.
-pub fn read_metadata_str(session: &Session, key: &str) -> Result<Option<String>, ort::Error> {
+pub fn read_metadata_str(
+    session: &Session,
+    key: &str,
+) -> Result<Option<String>, ort::Error> {
     let meta = session.metadata()?;
     meta.custom(key)
 }
@@ -173,9 +170,8 @@ pub fn read_metadata_i32(
     key: &str,
     default: Option<i32>,
 ) -> Result<Option<i32>, crate::TranscribeError> {
-    let str_val = read_metadata_str(session, key).map_err(|e| {
-        crate::TranscribeError::Config(format!("failed to read metadata '{}': {}", key, e))
-    })?;
+    let str_val = read_metadata_str(session, key)
+        .map_err(|e| crate::TranscribeError::Config(format!("failed to read metadata '{}': {}", key, e)))?;
     match str_val {
         Some(v) => Ok(Some(v.parse::<i32>().map_err(|e| {
             crate::TranscribeError::Config(format!("failed to parse '{}': {}", key, e))
@@ -189,18 +185,14 @@ pub fn read_metadata_float_vec(
     session: &Session,
     key: &str,
 ) -> Result<Option<Vec<f32>>, crate::TranscribeError> {
-    let str_val = read_metadata_str(session, key).map_err(|e| {
-        crate::TranscribeError::Config(format!("failed to read metadata '{}': {}", key, e))
-    })?;
+    let str_val = read_metadata_str(session, key)
+        .map_err(|e| crate::TranscribeError::Config(format!("failed to read metadata '{}': {}", key, e)))?;
     match str_val {
         Some(v) => {
             let floats: Result<Vec<f32>, _> =
                 v.split(',').map(|s| s.trim().parse::<f32>()).collect();
             Ok(Some(floats.map_err(|e| {
-                crate::TranscribeError::Config(format!(
-                    "failed to parse floats in '{}': {}",
-                    key, e
-                ))
+                crate::TranscribeError::Config(format!("failed to parse floats in '{}': {}", key, e))
             })?))
         }
         None => Ok(None),

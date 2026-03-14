@@ -30,6 +30,14 @@ No features are enabled by default. Pick the engines you need:
 | `openai` | OpenAI API (remote, async) |
 | `all` | Everything above |
 
+GPU accelerator features for ORT engines:
+
+| Feature | Backend |
+|---------|---------|
+| `ort-cuda` | NVIDIA CUDA |
+| `ort-rocm` | AMD ROCm |
+| `ort-directml` | Microsoft DirectML (Windows) |
+
 ## Quick Start
 
 ```rust
@@ -54,6 +62,30 @@ println!("{}", result.text);
 ```
 
 All local engines implement the `SpeechModel` trait. Remote engines (OpenAI) implement `RemoteTranscriptionEngine` separately because they are async and file-based.
+
+## Hardware Acceleration
+
+By default, engines use CPU. To enable GPU acceleration, enable the appropriate feature and set the accelerator preference before loading any models:
+
+```rust
+use transcribe_rs::{set_ort_accelerator, OrtAccelerator};
+
+// Use CUDA for all ORT engines (SenseVoice, GigaAM, Parakeet, Moonshine)
+set_ort_accelerator(OrtAccelerator::Cuda);
+
+// Or auto-detect the best available GPU
+set_ort_accelerator(OrtAccelerator::Auto);
+```
+
+For whisper.cpp, GPU backend (Metal, Vulkan) is selected at compile time. You can control whether GPU is used at runtime:
+
+```rust
+use transcribe_rs::{set_whisper_accelerator, WhisperAccelerator};
+
+set_whisper_accelerator(WhisperAccelerator::CpuOnly); // force CPU
+```
+
+Query which ORT accelerators are compiled in with `OrtAccelerator::available()`.
 
 ## Usage by Engine
 
