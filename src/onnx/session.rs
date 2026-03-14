@@ -10,36 +10,36 @@ use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
 use std::path::Path;
 
-use crate::accel::{get_accelerator, AcceleratorPreference};
+use crate::accel::{get_ort_accelerator, OrtAccelerator};
 
 /// Build the execution provider list based on the global accelerator preference.
 fn execution_providers() -> Vec<ort::execution_providers::ExecutionProviderDispatch> {
-    let pref = get_accelerator();
+    let pref = get_ort_accelerator();
     let mut eps = Vec::new();
 
     match pref {
-        AcceleratorPreference::CpuOnly => {
+        OrtAccelerator::CpuOnly => {
             // CPU only — no GPU providers
         }
-        AcceleratorPreference::Cuda => {
+        OrtAccelerator::Cuda => {
             #[cfg(feature = "ort-cuda")]
             eps.push(CUDAExecutionProvider::default().build());
             #[cfg(not(feature = "ort-cuda"))]
             log::warn!("Accelerator set to CUDA but ort-cuda feature is not enabled; falling back to CPU");
         }
-        AcceleratorPreference::DirectMl => {
+        OrtAccelerator::DirectMl => {
             #[cfg(feature = "ort-directml")]
             eps.push(DirectMLExecutionProvider::default().build());
             #[cfg(not(feature = "ort-directml"))]
             log::warn!("Accelerator set to DirectML but ort-directml feature is not enabled; falling back to CPU");
         }
-        AcceleratorPreference::Rocm => {
+        OrtAccelerator::Rocm => {
             #[cfg(feature = "ort-rocm")]
             eps.push(ROCmExecutionProvider::default().build());
             #[cfg(not(feature = "ort-rocm"))]
             log::warn!("Accelerator set to ROCm but ort-rocm feature is not enabled; falling back to CPU");
         }
-        AcceleratorPreference::Auto => {
+        OrtAccelerator::Auto => {
             // Add all compiled-in GPU EPs in priority order
             #[cfg(feature = "ort-cuda")]
             eps.push(CUDAExecutionProvider::default().build());
@@ -57,10 +57,10 @@ fn execution_providers() -> Vec<ort::execution_providers::ExecutionProviderDispa
 
 /// Returns true if DirectML is active in the current EP list.
 fn directml_active() -> bool {
-    let pref = get_accelerator();
+    let pref = get_ort_accelerator();
     match pref {
-        AcceleratorPreference::DirectMl => cfg!(feature = "ort-directml"),
-        AcceleratorPreference::Auto => cfg!(feature = "ort-directml"),
+        OrtAccelerator::DirectMl => cfg!(feature = "ort-directml"),
+        OrtAccelerator::Auto => cfg!(feature = "ort-directml"),
         _ => false,
     }
 }

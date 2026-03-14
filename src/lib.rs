@@ -86,7 +86,10 @@
 pub mod accel;
 pub mod audio;
 pub mod error;
-pub use accel::{available_accelerators, get_accelerator, set_accelerator, AcceleratorPreference};
+pub use accel::{
+    OrtAccelerator, get_ort_accelerator, set_ort_accelerator,
+    WhisperAccelerator, get_whisper_accelerator, set_whisper_accelerator,
+};
 pub use error::TranscribeError;
 
 #[cfg(feature = "audio-features")]
