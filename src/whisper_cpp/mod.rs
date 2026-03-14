@@ -52,6 +52,8 @@ pub struct WhisperLoadParams {
     /// Enable flash attention for faster inference.
     /// Cannot be used with DTW token-level timestamps.
     pub flash_attn: bool,
+    /// GPU device index (0-based). Only relevant with multiple GPUs.
+    pub gpu_device: i32,
 }
 
 impl Default for WhisperLoadParams {
@@ -59,6 +61,7 @@ impl Default for WhisperLoadParams {
         Self {
             use_gpu: true,
             flash_attn: true,
+            gpu_device: 0,
         }
     }
 }
@@ -94,6 +97,9 @@ pub struct WhisperInferenceParams {
     /// Threshold for detecting silence/no-speech segments (0.0-1.0).
     pub no_speech_thold: f32,
 
+    /// Number of CPU threads for decoding. 0 uses the whisper.cpp default (min(4, num_cores)).
+    pub n_threads: i32,
+
     /// Initial prompt to provide context to the model.
     pub initial_prompt: Option<String>,
 }
@@ -110,6 +116,7 @@ impl Default for WhisperInferenceParams {
             suppress_blank: true,
             suppress_non_speech_tokens: true,
             no_speech_thold: 0.2,
+            n_threads: 0,
             initial_prompt: None,
         }
     }
@@ -147,6 +154,7 @@ impl WhisperEngine {
         let mut context_params = WhisperContextParameters::default();
         context_params.use_gpu = params.use_gpu;
         context_params.flash_attn = params.flash_attn;
+        context_params.gpu_device = params.gpu_device;
         let context = WhisperContext::new_with_params(model_path.to_str().unwrap(), context_params)
             .map_err(|e| TranscribeError::Inference(e.to_string()))?;
 
@@ -190,6 +198,9 @@ impl WhisperEngine {
         full_params.set_suppress_blank(params.suppress_blank);
         full_params.set_suppress_nst(params.suppress_non_speech_tokens);
         full_params.set_no_speech_thold(params.no_speech_thold);
+        if params.n_threads > 0 {
+            full_params.set_n_threads(params.n_threads);
+        }
 
         if let Some(ref prompt) = params.initial_prompt {
             full_params.set_initial_prompt(prompt);
