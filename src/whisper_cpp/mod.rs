@@ -180,7 +180,7 @@ impl WhisperEngine {
         full_params.set_print_realtime(params.print_realtime);
         full_params.set_print_timestamps(params.print_timestamps);
         full_params.set_suppress_blank(params.suppress_blank);
-        full_params.set_suppress_non_speech_tokens(params.suppress_non_speech_tokens);
+        full_params.set_suppress_nst(params.suppress_non_speech_tokens);
         full_params.set_no_speech_thold(params.no_speech_thold);
 
         if let Some(ref prompt) = params.initial_prompt {
@@ -191,36 +191,28 @@ impl WhisperEngine {
             .full(full_params, samples)
             .map_err(|e| TranscribeError::Inference(e.to_string()))?;
 
-        let num_segments = self
-            .state
-            .full_n_segments()
-            .map_err(|e| TranscribeError::Inference(e.to_string()))?;
+        let num_segments = self.state.full_n_segments();
 
         let mut segments = Vec::new();
         let mut full_text = String::new();
 
         for i in 0..num_segments {
-            let text = self
+            let segment = self
                 .state
-                .full_get_segment_text(i)
+                .get_segment(i)
+                .ok_or_else(|| TranscribeError::Inference(format!("segment {i} out of bounds")))?;
+            let text = segment
+                .to_str()
                 .map_err(|e| TranscribeError::Inference(e.to_string()))?;
-            let start =
-                self.state
-                    .full_get_segment_t0(i)
-                    .map_err(|e| TranscribeError::Inference(e.to_string()))? as f32
-                    / 100.0;
-            let end =
-                self.state
-                    .full_get_segment_t1(i)
-                    .map_err(|e| TranscribeError::Inference(e.to_string()))? as f32
-                    / 100.0;
+            let start = segment.start_timestamp() as f32 / 100.0;
+            let end = segment.end_timestamp() as f32 / 100.0;
 
             segments.push(TranscriptionSegment {
                 start,
                 end,
-                text: text.clone(),
+                text: text.to_string(),
             });
-            full_text.push_str(&text);
+            full_text.push_str(text);
         }
 
         Ok(TranscriptionResult {
