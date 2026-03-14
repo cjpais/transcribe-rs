@@ -25,6 +25,12 @@ whisperfile = ["dep:ureq"]
 # Remote engines
 openai = ["dep:async-openai", "dep:tokio", "dep:async-trait"]
 
+# --- ORT Accelerators ---
+ort-cuda     = ["onnx", "ort/cuda"]
+ort-directml = ["onnx", "ort/directml"]
+ort-rocm     = ["onnx", "ort/rocm"]
+ort-accel    = ["ort-cuda", "ort-directml", "ort-rocm"]
+
 # Convenience
 all = ["onnx", "whisper-cpp", "whisperfile", "openai"]
 

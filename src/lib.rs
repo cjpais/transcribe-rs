@@ -10,6 +10,8 @@
 //! - **Remote**: OpenAI API (requires `openai` feature)
 //! - **Timestamped Results**: Detailed timing information for transcribed segments
 //! - **Unified API**: `SpeechModel` trait for all local engines
+//! - **Hardware Acceleration**: GPU support for ORT engines (`ort-cuda`, `ort-rocm`,
+//!   `ort-directml`) and whisper.cpp (Metal/Vulkan) via the [`accel`] module
 //!
 //! ## Backend Categories
 //!
@@ -83,8 +85,13 @@
 //! actual language support of the loaded model (English-only vs multilingual) rather than
 //! always reporting all 99 languages.
 
+pub mod accel;
 pub mod audio;
 pub mod error;
+pub use accel::{
+    OrtAccelerator, get_ort_accelerator, set_ort_accelerator,
+    WhisperAccelerator, get_whisper_accelerator, set_whisper_accelerator,
+};
 pub use error::TranscribeError;
 
 #[cfg(feature = "audio-features")]
