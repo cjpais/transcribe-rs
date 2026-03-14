@@ -94,16 +94,16 @@ pub fn decode_autoregressive(
 
 fn extract_decoder_mems_shape(decoder: &Session) -> Result<(usize, usize), TranscribeError> {
     let mems_input = decoder
-        .inputs
+        .inputs()
         .iter()
-        .find(|outlet: &&ort::session::Input| outlet.name == "decoder_mems")
+        .find(|outlet| outlet.name() == "decoder_mems")
         .ok_or_else(|| {
             TranscribeError::Inference("Decoder model missing 'decoder_mems' input".to_string())
         })?;
 
-    match &mems_input.input_type {
+    match mems_input.dtype() {
         ValueType::Tensor { shape, .. } => {
-            let dims: &[i64] = shape;
+            let dims: &[i64] = &shape;
             if dims.len() != 4 {
                 return Err(TranscribeError::Inference(format!(
                     "Expected 4D decoder_mems, got {}D",

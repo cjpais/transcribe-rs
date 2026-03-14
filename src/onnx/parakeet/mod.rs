@@ -208,13 +208,13 @@ impl ParakeetModel {
     }
 
     fn create_decoder_state(&self) -> Result<DecoderState, TranscribeError> {
-        let inputs = &self.decoder_joint.inputs;
+        let inputs = self.decoder_joint.inputs();
 
         let state1_shape = inputs
             .iter()
-            .find(|input| input.name == "input_states_1")
+            .find(|input| input.name() == "input_states_1")
             .ok_or_else(|| TranscribeError::Inference("Missing input: input_states_1".to_string()))?
-            .input_type
+            .dtype()
             .tensor_shape()
             .ok_or_else(|| {
                 TranscribeError::Inference(
@@ -224,9 +224,9 @@ impl ParakeetModel {
 
         let state2_shape = inputs
             .iter()
-            .find(|input| input.name == "input_states_2")
+            .find(|input| input.name() == "input_states_2")
             .ok_or_else(|| TranscribeError::Inference("Missing input: input_states_2".to_string()))?
-            .input_type
+            .dtype()
             .tensor_shape()
             .ok_or_else(|| {
                 TranscribeError::Inference(

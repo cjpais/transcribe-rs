@@ -45,8 +45,8 @@ env_logger = "0.10.0"
 derive_builder = { version = "0.20.2" }
 
 # ONNX runtime
-ort = { version = "=2.0.0-rc.10", optional = true }
-ndarray = { version = "0.16.1", optional = true }
+ort = { version = "=2.0.0-rc.12", optional = true }
+ndarray = { version = "0.17", optional = true }
 regex = { version = "1.11.2", optional = true }
 once_cell = { version = "1.21.3", optional = true }
 rustfft = { version = "6", optional = true }
