@@ -44,13 +44,15 @@ fn execution_providers() -> Vec<ort::execution_providers::ExecutionProviderDispa
             );
         }
         OrtAccelerator::Auto => {
-            // Add all compiled-in GPU EPs in priority order
+            // Add compiled-in GPU EPs in priority order.
+            // DirectML is excluded from Auto because it requires
+            // parallel_execution(false) and memory_pattern(false),
+            // which would penalize other backends. Use
+            // OrtAccelerator::DirectMl explicitly for DirectML.
             #[cfg(feature = "ort-cuda")]
             eps.push(CUDAExecutionProvider::default().build());
             #[cfg(feature = "ort-rocm")]
             eps.push(ROCmExecutionProvider::default().build());
-            #[cfg(feature = "ort-directml")]
-            eps.push(DirectMLExecutionProvider::default().build());
         }
     }
 
@@ -59,14 +61,9 @@ fn execution_providers() -> Vec<ort::execution_providers::ExecutionProviderDispa
     eps
 }
 
-/// Returns true if DirectML is active in the current EP list.
+/// Returns true if DirectML is the explicitly selected execution provider.
 fn directml_active() -> bool {
-    let pref = get_ort_accelerator();
-    match pref {
-        OrtAccelerator::DirectMl => cfg!(feature = "ort-directml"),
-        OrtAccelerator::Auto => cfg!(feature = "ort-directml"),
-        _ => false,
-    }
+    get_ort_accelerator() == OrtAccelerator::DirectMl && cfg!(feature = "ort-directml")
 }
 
 /// Internal session builder with full control over threading and EP selection.

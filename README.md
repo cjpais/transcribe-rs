@@ -85,6 +85,8 @@ use transcribe_rs::{set_whisper_accelerator, WhisperAccelerator};
 set_whisper_accelerator(WhisperAccelerator::CpuOnly); // force CPU
 ```
 
+**DirectML note:** DirectML requires special ORT session settings (`parallel_execution(false)`, `memory_pattern(false)`) that would hurt performance on other backends. Because of this, `Auto` mode does not include DirectML — you must explicitly select it with `OrtAccelerator::DirectMl`.
+
 Query which ORT accelerators are compiled in with `OrtAccelerator::available()`.
 
 ## Usage by Engine
