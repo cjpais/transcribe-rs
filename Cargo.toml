@@ -15,9 +15,13 @@ audio-features = ["dep:ndarray", "dep:rustfft"]
 # ONNX-based models (SenseVoice, GigaAM, Parakeet, Moonshine, Canary)
 onnx = ["audio-features", "dep:ort", "dep:base64", "dep:regex", "dep:once_cell"]
 
-# Whisper via whisper.cpp
+# Whisper via whisper.cpp (CPU-only by default; add whisper-metal or whisper-vulkan for GPU)
 whisper-cpp = ["dep:whisper-rs"]
 whisper = ["whisper-cpp"]  # backward compat alias
+
+# --- Whisper Accelerators ---
+whisper-metal  = ["whisper-cpp", "whisper-rs/metal"]
+whisper-vulkan = ["whisper-cpp", "whisper-rs/vulkan"]
 
 # Whisperfile server
 whisperfile = ["dep:ureq"]
@@ -63,14 +67,8 @@ tokio = { version = "1.47.1", features = ["rt-multi-thread"], optional = true }
 async-openai = { version = "0.29.3", optional = true }
 async-trait = { version = "0.1.89", optional = true }
 
-[target.'cfg(target_os = "macos")'.dependencies]
-whisper-rs = { version = "0.16.0", features = ["metal"], optional = true }
-
-[target.'cfg(target_os = "windows")'.dependencies]
-whisper-rs = { version = "0.16.0", features = ["vulkan"], optional = true }
-
-[target.'cfg(target_os = "linux")'.dependencies]
-whisper-rs = { version = "0.16.0", features = ["vulkan"], optional = true }
+# Whisper (GPU features controlled by whisper-metal / whisper-vulkan feature flags)
+whisper-rs = { version = "0.16.0", optional = true }
 
 # Examples with required features
 [[example]]

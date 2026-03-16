@@ -147,6 +147,20 @@ pub fn get_whisper_accelerator() -> WhisperAccelerator {
 }
 
 impl WhisperAccelerator {
+    /// Return the list of Whisper accelerators available for the current build.
+    ///
+    /// Always includes `CpuOnly`. Includes `Gpu` when whisper-rs was compiled
+    /// with a GPU backend (Metal on macOS, Vulkan on Windows/Linux).
+    pub fn available() -> Vec<WhisperAccelerator> {
+        #[allow(unused_mut)]
+        let mut v = vec![WhisperAccelerator::CpuOnly];
+
+        #[cfg(any(feature = "whisper-metal", feature = "whisper-vulkan"))]
+        v.push(WhisperAccelerator::Gpu);
+
+        v
+    }
+
     /// Returns `true` if GPU should be used.
     pub fn use_gpu(&self) -> bool {
         *self != Self::CpuOnly
@@ -333,6 +347,12 @@ mod tests {
         assert_eq!(json, "\"gpu\"");
         let back: WhisperAccelerator = serde_json::from_str(&json).unwrap();
         assert_eq!(back, pref);
+    }
+
+    #[test]
+    fn whisper_available_always_includes_cpu() {
+        let avail = WhisperAccelerator::available();
+        assert!(avail.contains(&WhisperAccelerator::CpuOnly));
     }
 
     #[test]
