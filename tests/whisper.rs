@@ -17,7 +17,11 @@ static ENGINE: Lazy<Mutex<Option<WhisperEngine>>> = Lazy::new(|| {
         return Mutex::new(None);
     }
 
-    let params = WhisperLoadParams { use_gpu: false };
+    let params = WhisperLoadParams {
+        use_gpu: false,
+        flash_attn: false,
+        gpu_device: 0,
+    };
     match WhisperEngine::load_with_params(&model, params) {
         Ok(engine) => Mutex::new(Some(engine)),
         Err(e) => {
