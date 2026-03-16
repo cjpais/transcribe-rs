@@ -71,7 +71,11 @@ impl SenseVoiceModel {
         log::info!("Loading SenseVoice model from {:?}...", model_path);
         let session = session::create_session(&model_path)?;
 
-        let input_names: Vec<String> = session.inputs.iter().map(|i| i.name.clone()).collect();
+        let input_names: Vec<String> = session
+            .inputs()
+            .iter()
+            .map(|i| i.name().to_string())
+            .collect();
         log::debug!("Model inputs: {:?}", input_names);
 
         let metadata = Self::parse_metadata(&session)?;
