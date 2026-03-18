@@ -150,12 +150,12 @@ impl WhisperAccelerator {
     /// Return the list of Whisper accelerators available for the current build.
     ///
     /// Always includes `CpuOnly`. Includes `Gpu` when whisper-rs was compiled
-    /// with a GPU backend (Metal on macOS, Vulkan on Windows/Linux).
+    /// with a GPU backend (Metal on macOS, Vulkan on Windows/Linux, CUDA on Windows).
     pub fn available() -> Vec<WhisperAccelerator> {
         #[allow(unused_mut)]
         let mut v = vec![WhisperAccelerator::CpuOnly];
 
-        #[cfg(any(feature = "whisper-metal", feature = "whisper-vulkan"))]
+        #[cfg(any(feature = "whisper-metal", feature = "whisper-vulkan", feature = "whisper-cuda"))]
         v.push(WhisperAccelerator::Gpu);
 
         v

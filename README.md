@@ -25,10 +25,18 @@ No features are enabled by default. Pick the engines you need:
 | Feature | Engines |
 |---------|---------|
 | `onnx` | Parakeet, Canary, Moonshine, SenseVoice, GigaAM (via ONNX Runtime) |
-| `whisper-cpp` | Whisper (local, GGML via whisper.cpp with Metal/Vulkan) |
+| `whisper-cpp` | Whisper (local, GGML via whisper.cpp with Metal/Vulkan/CUDA) |
 | `whisperfile` | Whisperfile (local server wrapper) |
 | `openai` | OpenAI API (remote, async) |
 | `all` | Everything above |
+
+GPU accelerator features for whisper.cpp:
+
+| Feature | Backend |
+|---------|---------|
+| `whisper-metal` | Apple Metal (macOS) |
+| `whisper-vulkan` | Vulkan (Windows/Linux) |
+| `whisper-cuda` | NVIDIA CUDA (requires CUDA Toolkit 12.0+) |
 
 GPU accelerator features for ORT engines:
 
@@ -77,7 +85,7 @@ set_ort_accelerator(OrtAccelerator::Cuda);
 set_ort_accelerator(OrtAccelerator::Auto);
 ```
 
-For whisper.cpp, GPU backend (Metal, Vulkan) is selected at compile time. You can control whether GPU is used at runtime:
+For whisper.cpp, GPU backend (Metal, Vulkan, CUDA) is selected at compile time via feature flags. You can control whether GPU is used at runtime:
 
 ```rust
 use transcribe_rs::{set_whisper_accelerator, WhisperAccelerator};
