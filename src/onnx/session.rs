@@ -1,10 +1,14 @@
-use ort::ep::CPU;
-#[cfg(feature = "ort-cuda")]
-use ort::ep::CUDA;
+#[cfg(feature = "ort-coreml")]
+use ort::ep::CoreML;
 #[cfg(feature = "ort-directml")]
 use ort::ep::DirectML;
 #[cfg(feature = "ort-rocm")]
 use ort::ep::ROCm;
+#[cfg(feature = "ort-webgpu")]
+use ort::ep::WebGPU;
+use ort::ep::CPU;
+#[cfg(feature = "ort-cuda")]
+use ort::ep::CUDA;
 
 use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
@@ -43,16 +47,39 @@ fn execution_providers() -> Vec<ort::ep::ExecutionProviderDispatch> {
                 "Accelerator set to ROCm but ort-rocm feature is not enabled; falling back to CPU"
             );
         }
+        OrtAccelerator::CoreMl => {
+            #[cfg(feature = "ort-coreml")]
+            eps.push(CoreML::default().build());
+            #[cfg(not(feature = "ort-coreml"))]
+            log::warn!(
+                "Accelerator set to CoreML but ort-coreml feature is not enabled; falling back to CPU"
+            );
+        }
+        OrtAccelerator::WebGpu => {
+            #[cfg(feature = "ort-webgpu")]
+            eps.push(WebGPU::default().build());
+            #[cfg(not(feature = "ort-webgpu"))]
+            log::warn!(
+                "Accelerator set to WebGPU but ort-webgpu feature is not enabled; falling back to CPU"
+            );
+        }
         OrtAccelerator::Auto => {
             // Add compiled-in GPU EPs in priority order.
-            // DirectML is excluded from Auto because it requires
+            // DirectML and WebGPU are excluded from Auto because they require
             // parallel_execution(false) and memory_pattern(false),
-            // which would penalize other backends. Use
-            // OrtAccelerator::DirectMl explicitly for DirectML.
+            // which would penalize other backends. Use the explicit variant
+            // to opt in.
+            // Ref: https://onnxruntime.ai/docs/execution-providers/DirectML-ExecutionProvider.html
+            //      https://onnxruntime.ai/docs/execution-providers/WebGPU-ExecutionProvider.html
             #[cfg(feature = "ort-cuda")]
             eps.push(CUDA::default().build());
             #[cfg(feature = "ort-rocm")]
             eps.push(ROCm::default().build());
+            // CoreML is safe for Auto on macOS — analogous to CUDA on NVIDIA
+            // and ROCm on AMD. It does not require sequential execution or
+            // disabled memory patterns.
+            #[cfg(feature = "ort-coreml")]
+            eps.push(CoreML::default().build());
         }
     }
 
@@ -61,10 +88,14 @@ fn execution_providers() -> Vec<ort::ep::ExecutionProviderDispatch> {
     eps
 }
 
-/// Returns true if DirectML is the explicitly selected execution provider.
+/// Returns true if the selected execution provider requires sequential execution
+/// and disabled memory patterns (DirectML, WebGPU).
 fn requires_sequential_session() -> bool {
-    get_ort_accelerator() == OrtAccelerator::DirectMl && cfg!(feature = "ort-directml")
+    let pref = get_ort_accelerator();
+    (pref == OrtAccelerator::DirectMl && cfg!(feature = "ort-directml"))
+        || (pref == OrtAccelerator::WebGpu && cfg!(feature = "ort-webgpu"))
 }
+
 /// Internal session builder with full control over threading and EP selection.
 fn build_session(
     path: &Path,
@@ -80,7 +111,7 @@ fn build_session(
         }
     }
 
-    // DirectML requires sequential execution — parallel_execution(false) and memory_pattern(false)
+    // DirectML and WebGPU require parallel_execution(false) and memory_pattern(false)
     let use_parallel = if requires_sequential_session() {
         false
     } else {
