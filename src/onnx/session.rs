@@ -1,10 +1,10 @@
-use ort::execution_providers::CPUExecutionProvider;
+use ort::ep::CPU;
 #[cfg(feature = "ort-cuda")]
-use ort::execution_providers::CUDAExecutionProvider;
+use ort::ep::CUDA;
 #[cfg(feature = "ort-directml")]
-use ort::execution_providers::DirectMLExecutionProvider;
+use ort::ep::DirectML;
 #[cfg(feature = "ort-rocm")]
-use ort::execution_providers::ROCmExecutionProvider;
+use ort::ep::ROCm;
 
 use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
@@ -13,7 +13,7 @@ use std::path::Path;
 use crate::accel::{get_ort_accelerator, OrtAccelerator};
 
 /// Build the execution provider list based on the global accelerator preference.
-fn execution_providers() -> Vec<ort::execution_providers::ExecutionProviderDispatch> {
+fn execution_providers() -> Vec<ort::ep::ExecutionProviderDispatch> {
     let pref = get_ort_accelerator();
     let mut eps = Vec::new();
 
@@ -23,7 +23,7 @@ fn execution_providers() -> Vec<ort::execution_providers::ExecutionProviderDispa
         }
         OrtAccelerator::Cuda => {
             #[cfg(feature = "ort-cuda")]
-            eps.push(CUDAExecutionProvider::default().build());
+            eps.push(CUDA::default().build());
             #[cfg(not(feature = "ort-cuda"))]
             log::warn!(
                 "Accelerator set to CUDA but ort-cuda feature is not enabled; falling back to CPU"
@@ -31,13 +31,13 @@ fn execution_providers() -> Vec<ort::execution_providers::ExecutionProviderDispa
         }
         OrtAccelerator::DirectMl => {
             #[cfg(feature = "ort-directml")]
-            eps.push(DirectMLExecutionProvider::default().build());
+            eps.push(DirectML::default().build());
             #[cfg(not(feature = "ort-directml"))]
             log::warn!("Accelerator set to DirectML but ort-directml feature is not enabled; falling back to CPU");
         }
         OrtAccelerator::Rocm => {
             #[cfg(feature = "ort-rocm")]
-            eps.push(ROCmExecutionProvider::default().build());
+            eps.push(ROCm::default().build());
             #[cfg(not(feature = "ort-rocm"))]
             log::warn!(
                 "Accelerator set to ROCm but ort-rocm feature is not enabled; falling back to CPU"
@@ -50,22 +50,21 @@ fn execution_providers() -> Vec<ort::execution_providers::ExecutionProviderDispa
             // which would penalize other backends. Use
             // OrtAccelerator::DirectMl explicitly for DirectML.
             #[cfg(feature = "ort-cuda")]
-            eps.push(CUDAExecutionProvider::default().build());
+            eps.push(CUDA::default().build());
             #[cfg(feature = "ort-rocm")]
-            eps.push(ROCmExecutionProvider::default().build());
+            eps.push(ROCm::default().build());
         }
     }
 
     // CPU is always the final fallback
-    eps.push(CPUExecutionProvider::default().build());
+    eps.push(CPU::default().build());
     eps
 }
 
 /// Returns true if DirectML is the explicitly selected execution provider.
-fn directml_active() -> bool {
+fn requires_sequential_session() -> bool {
     get_ort_accelerator() == OrtAccelerator::DirectMl && cfg!(feature = "ort-directml")
 }
-
 /// Internal session builder with full control over threading and EP selection.
 fn build_session(
     path: &Path,
@@ -81,8 +80,8 @@ fn build_session(
         }
     }
 
-    // DirectML requires parallel_execution(false) and memory_pattern(false)
-    let use_parallel = if directml_active() {
+    // DirectML requires sequential execution — parallel_execution(false) and memory_pattern(false)
+    let use_parallel = if requires_sequential_session() {
         false
     } else {
         parallel_execution
@@ -90,7 +89,7 @@ fn build_session(
 
     builder = builder.with_parallel_execution(use_parallel)?;
 
-    if directml_active() {
+    if requires_sequential_session() {
         builder = builder.with_memory_pattern(false)?;
     }
 
