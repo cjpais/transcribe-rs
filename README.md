@@ -1,6 +1,6 @@
 # transcribe-rs
 
-Multi-engine speech-to-text library for Rust. Supports Parakeet, Canary, Moonshine, SenseVoice, GigaAM, Whisper, Whisperfile, and OpenAI.
+Multi-engine speech-to-text library for Rust. Supports Parakeet, Canary, Moonshine, SenseVoice, GigaAM, Whisper, Whisperfile, Qwen3-ASR, and OpenAI.
 
 ## Breaking Changes in 0.3.0
 
@@ -25,6 +25,7 @@ No features are enabled by default. Pick the engines you need:
 | Feature | Engines |
 |---------|---------|
 | `onnx` | Parakeet, Canary, Moonshine, SenseVoice, GigaAM (via ONNX Runtime) |
+| `qwen3` | Qwen3-ASR (ONNX, multilingual) |
 | `whisper-cpp` | Whisper (local, GGML via whisper.cpp with Metal/Vulkan/CUDA) |
 | `whisperfile` | Whisperfile (local server wrapper) |
 | `openai` | OpenAI API (remote, async) |
@@ -212,6 +213,22 @@ let mut model = GigaAMModel::load(
 let result = model.transcribe_file(&PathBuf::from("audio.wav"), &transcribe_rs::TranscribeOptions::default())?;
 ```
 
+### Qwen3-ASR
+
+```rust
+use transcribe_rs::onnx::qwen3::Qwen3Model;
+use transcribe_rs::onnx::Quantization;
+use transcribe_rs::SpeechModel;
+use std::path::PathBuf;
+
+let mut model = Qwen3Model::load(
+    &PathBuf::from("models/qwen3-asr-0.6b"),
+    &Quantization::default(),
+)?;
+let result = model.transcribe_file(&PathBuf::from("audio.wav"), &transcribe_rs::TranscribeOptions::default())?;
+println!("{}", result.text);
+```
+
 ### Whisper (whisper.cpp)
 
 ```rust
@@ -298,6 +315,8 @@ All audio input must be **16 kHz, mono, 16-bit PCM WAV**.
 | SenseVoice (int8) | [blob.handy.computer](https://blob.handy.computer/sense-voice-int8.tar.gz) / [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models) |
 | Moonshine | [blob.handy.computer (base)](https://blob.handy.computer/moonshine-base.tar.gz), [blob.handy.computer (tiny streaming en)](https://blob.handy.computer/moonshine-tiny-streaming-en.tar.gz), [blob.handy.computer (small streaming en)](https://blob.handy.computer/moonshine-small-streaming-en.tar.gz), [blob.handy.computer (medium streaming en)](https://blob.handy.computer/moonshine-medium-streaming-en.tar.gz) |
 | GigaAM | [HuggingFace](https://huggingface.co/istupakov/gigaam-v3-onnx/tree/main) |
+| Qwen3-ASR 0.6B | [HuggingFace](https://huggingface.co/andrewleech/qwen3-asr-0.6b-onnx) |
+| Qwen3-ASR 1.7B | [HuggingFace](https://huggingface.co/andrewleech/qwen3-asr-1.7b-onnx) |
 | Whisper (GGML) | [HuggingFace](https://huggingface.co/ggerganov/whisper.cpp/tree/main) |
 | Whisperfile binary | [GitHub](https://github.com/mozilla-ai/llamafile/releases/download/0.9.3/whisperfile-0.9.3) |
 
@@ -352,6 +371,19 @@ models/giga-am-v3/
 └── vocab.txt
 ```
 
+**Qwen3-ASR** (directory):
+```
+models/qwen3-asr-0.6b/
+├── encoder.onnx          # Audio encoder (+ .data weight file)
+├── decoder_init.onnx     # Decoder prefill (+ .data weight file)
+├── decoder_step.onnx     # Decoder autoregressive step (+ .data weight file)
+├── embed_tokens.bin      # Embedding matrix (raw f32)
+├── config.json           # Model configuration
+└── tokenizer.json        # HuggingFace BPE tokenizer
+```
+
+Export scripts: [qwen3-asr-onnx](https://github.com/andrewleech/qwen3-asr-onnx).
+
 **Whisper**: single file (e.g. `whisper-medium-q4_1.bin`).
 
 ### Moonshine Variants
@@ -379,6 +411,7 @@ cargo run --example sense_voice --features onnx
 cargo run --example moonshine --features onnx
 cargo run --example moonshine_streaming --features onnx
 cargo run --example gigaam --features onnx
+cargo run --example qwen3 --features qwen3
 cargo run --example whisper --features whisper-cpp
 cargo run --example whisperfile --features whisperfile
 cargo run --example openai --features openai
@@ -388,6 +421,7 @@ Tests are also feature-gated. Models must be present locally; tests skip gracefu
 
 ```bash
 cargo test --features onnx
+cargo test --features qwen3
 cargo test --features whisper-cpp
 cargo test --features whisperfile
 cargo test --all-features
@@ -423,3 +457,4 @@ Parakeet int8 benchmarks:
 - [UsefulSensors](https://github.com/usefulsensors) for Moonshine
 - [FunASR](https://github.com/modelscope/FunASR) / [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) for SenseVoice
 - [SberDevices](https://github.com/salute-developers/GigaAM) for GigaAM
+- [Alibaba Qwen Team](https://github.com/QwenLM/Qwen3) for Qwen3
