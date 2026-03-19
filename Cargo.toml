@@ -26,6 +26,9 @@ whisper-cuda   = ["whisper-cpp", "whisper-rs/cuda"]
 # Whisperfile server
 whisperfile = ["dep:ureq"]
 
+# Qwen3-ASR (ONNX, Whisper-compatible mel)
+qwen3 = ["onnx"]
+
 # Remote engines
 openai = ["dep:async-openai", "dep:tokio", "dep:async-trait"]
 
@@ -36,7 +39,7 @@ ort-rocm     = ["onnx", "ort/rocm"]
 ort-accel    = ["ort-cuda", "ort-directml", "ort-rocm"]
 
 # Convenience
-all = ["onnx", "whisper-cpp", "whisperfile", "openai"]
+all = ["onnx", "whisper-cpp", "whisperfile", "openai", "qwen3"]
 
 [dependencies]
 # Always required
@@ -107,6 +110,14 @@ required-features = ["whisperfile"]
 name = "openai"
 required-features = ["openai"]
 
+[[example]]
+name = "qwen3"
+required-features = ["qwen3"]
+
+[[example]]
+name = "bench_compare"
+required-features = ["qwen3"]
+
 [dev-dependencies]
 once_cell = "1.21.3"
 
@@ -138,6 +149,10 @@ required-features = ["onnx"]
 [[test]]
 name = "whisperfile"
 required-features = ["whisperfile"]
+
+[[test]]
+name = "qwen3"
+required-features = ["qwen3"]
 
 [[test]]
 name = "openai"

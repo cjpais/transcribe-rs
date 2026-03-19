@@ -45,6 +45,22 @@ pub fn get_ort_accelerator() -> OrtAccelerator {
     OrtAccelerator::from_u8(ORT_ACCELERATOR.load(Ordering::Relaxed))
 }
 
+static DECODER_GPU: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Enable GPU execution providers for decoder sessions.
+///
+/// By default, decoder sessions use CPU-only with arena allocator because
+/// sequential execution makes GPU kernel launch overhead net-negative for
+/// per-token latency at batch size 1. Set to `true` for GPU benchmarking.
+pub fn set_decoder_gpu(enable: bool) {
+    DECODER_GPU.store(enable, Ordering::Relaxed);
+}
+
+/// Get whether decoder sessions should use GPU execution providers.
+pub fn get_decoder_gpu() -> bool {
+    DECODER_GPU.load(Ordering::Relaxed)
+}
+
 impl OrtAccelerator {
     /// Return the list of ORT accelerators that are compiled-in for the current build.
     ///
@@ -155,7 +171,11 @@ impl WhisperAccelerator {
         #[allow(unused_mut)]
         let mut v = vec![WhisperAccelerator::CpuOnly];
 
-        #[cfg(any(feature = "whisper-metal", feature = "whisper-vulkan", feature = "whisper-cuda"))]
+        #[cfg(any(
+            feature = "whisper-metal",
+            feature = "whisper-vulkan",
+            feature = "whisper-cuda"
+        ))]
         v.push(WhisperAccelerator::Gpu);
 
         v
