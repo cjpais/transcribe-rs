@@ -17,6 +17,7 @@ pub enum Quantization {
     FP32,
     FP16,
     Int8,
+    Int4,
 }
 
 pub mod canary;

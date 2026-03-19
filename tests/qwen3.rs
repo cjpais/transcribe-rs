@@ -127,3 +127,64 @@ fn test_qwen3_audio_too_long() -> Result<(), Box<dyn std::error::Error>> {
     assert!(err.contains("audio too long"), "unexpected error: {err}");
     Ok(())
 }
+
+#[test]
+fn test_qwen3_int4_fp16_embed() -> Result<(), Box<dyn std::error::Error>> {
+    env_logger::try_init().ok();
+
+    // Tests FP16 embed_tokens.bin loading (embed_tokens_dtype: float16 in config.json).
+    let model_path = PathBuf::from("models/qwen3-asr-0.6b-int4");
+    let wav_path = PathBuf::from("samples/jfk.wav");
+
+    if !model_path.join("decoder_init.int4.onnx").exists()
+        || !model_path.join("embed_tokens.bin").exists()
+        || !wav_path.exists()
+    {
+        return Ok(());
+    }
+
+    let mut model = Qwen3Model::load(&model_path, &Quantization::Int4)?;
+    let result = model.transcribe_file(&wav_path, &transcribe_rs::TranscribeOptions::default())?;
+
+    let acceptable = [
+        "And so, my fellow Americans, ask not what your country can do for you, ask what you can do for your country.",
+        "And so, my fellow Americans, ask not what your country can do for you; ask what you can do for your country.",
+    ];
+    assert!(
+        acceptable.contains(&result.text.trim()),
+        "\nExpected one of: {:?}\nActual: '{}'",
+        acceptable,
+        result.text.trim()
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_qwen3_1_7b_int4_transcribe() -> Result<(), Box<dyn std::error::Error>> {
+    env_logger::try_init().ok();
+
+    let model_path = PathBuf::from("models/qwen3-asr-1.7b");
+    let wav_path = PathBuf::from("samples/jfk.wav");
+    let int4_path = model_path.join("decoder_init.int4.onnx");
+
+    if !common::require_paths(&[&model_path, &wav_path]) || !int4_path.exists() {
+        return Ok(());
+    }
+
+    let mut model = Qwen3Model::load(&model_path, &Quantization::Int4)?;
+    let result = model.transcribe_file(&wav_path, &transcribe_rs::TranscribeOptions::default())?;
+
+    let acceptable = [
+        "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country.",
+        "And so, my fellow Americans, ask not what your country can do for you; ask what you can do for your country.",
+    ];
+    assert!(
+        acceptable.contains(&result.text.trim()),
+        "\nExpected one of: {:?}\nActual: '{}'",
+        acceptable,
+        result.text.trim()
+    );
+
+    Ok(())
+}

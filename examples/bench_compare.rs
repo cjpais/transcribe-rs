@@ -126,6 +126,7 @@ fn bench_model(
 fn parse_quantization(s: &str) -> Quantization {
     match s.to_ascii_lowercase().as_str() {
         "int8" | "i8" => Quantization::Int8,
+        "int4" | "i4" => Quantization::Int4,
         "fp16" | "f16" => Quantization::FP16,
         _ => Quantization::FP32,
     }
