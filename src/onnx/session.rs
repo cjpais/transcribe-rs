@@ -139,6 +139,7 @@ pub fn resolve_model_path(
         super::Quantization::FP32 => None,
         super::Quantization::FP16 => Some("fp16"),
         super::Quantization::Int8 => Some("int8"),
+        super::Quantization::Int4 => Some("int4"),
     };
 
     if let Some(suffix) = suffix {
