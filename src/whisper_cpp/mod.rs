@@ -266,6 +266,7 @@ impl SpeechModel for WhisperEngine {
         let params = WhisperInferenceParams {
             language: options.language.clone(),
             translate: options.translate,
+            initial_prompt: options.initial_prompt.clone(),
             ..Default::default()
         };
         self.infer(samples, &params)

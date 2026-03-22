@@ -140,6 +140,10 @@ pub struct TranscribeOptions {
     pub language: Option<String>,
     /// Whether to translate the output to English (only supported by some engines).
     pub translate: bool,
+    /// Initial prompt to provide context to the model (Whisper only).
+    /// Useful for hinting domain vocabulary, proper nouns, or style.
+    /// The prompt is prepended as context but does not appear in the output.
+    pub initial_prompt: Option<String>,
 }
 
 /// Unified interface for speech-to-text models.
