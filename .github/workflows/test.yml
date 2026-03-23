@@ -83,7 +83,7 @@ jobs:
           curl -sLO https://huggingface.co/onnx-community/moonshine-base-ONNX/resolve/main/tokenizer.json
 
       - name: Run Tests (Moonshine)
-        run: cargo test --features moonshine
+        run: cargo test --features onnx
 
       - name: Cache Parakeet Model
         id: cache-parakeet
@@ -100,7 +100,7 @@ jobs:
           curl -sL https://blob.handy.computer/parakeet-v3-int8.tar.gz | tar -xz -C models/
 
       - name: Run Tests (Parakeet)
-        run: cargo test --features parakeet
+        run: cargo test --features onnx
 
       - name: Cache SenseVoice Model
         id: cache-sensevoice
@@ -117,7 +117,7 @@ jobs:
           curl -sL https://blob.handy.computer/sense-voice-int8.tar.gz | tar -xz -C models/
 
       - name: Run Tests (SenseVoice)
-        run: cargo test --features sense_voice
+        run: cargo test --features onnx
 
       - name: Cache Whisper Model
         id: cache-whisper
@@ -134,7 +134,7 @@ jobs:
           curl -sLo models/whisper-tiny.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin
 
       - name: Run Tests (Whisper)
-        run: cargo test --features whisper
+        run: cargo test --features whisper-cpp
 
       - name: Cache Whisperfile Resources
         id: cache-whisperfile
