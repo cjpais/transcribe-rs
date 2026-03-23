@@ -155,7 +155,11 @@ impl WhisperAccelerator {
         #[allow(unused_mut)]
         let mut v = vec![WhisperAccelerator::CpuOnly];
 
-        #[cfg(any(feature = "whisper-metal", feature = "whisper-vulkan", feature = "whisper-cuda"))]
+        #[cfg(any(
+            feature = "whisper-metal",
+            feature = "whisper-vulkan",
+            feature = "whisper-cuda"
+        ))]
         v.push(WhisperAccelerator::Gpu);
 
         v
