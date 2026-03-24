@@ -101,6 +101,8 @@ pub mod features;
 #[cfg(feature = "onnx")]
 pub mod onnx;
 
+pub mod vad;
+
 #[cfg(feature = "whisper-cpp")]
 pub mod whisper_cpp;
 #[cfg(feature = "whisperfile")]

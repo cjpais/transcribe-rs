@@ -29,6 +29,9 @@ whisperfile = ["dep:ureq"]
 # Remote engines
 openai = ["dep:async-openai", "dep:tokio", "dep:async-trait"]
 
+# Silero neural VAD (requires silero_vad_v4.onnx model file)
+vad-silero = ["dep:ort", "dep:ndarray"]
+
 # --- ORT Accelerators ---
 ort-cuda     = ["onnx", "ort/cuda"]
 ort-directml = ["onnx", "ort/directml"]
@@ -142,3 +145,7 @@ required-features = ["whisperfile"]
 [[test]]
 name = "openai"
 required-features = ["openai"]
+
+[[test]]
+name = "vad_silero"
+required-features = ["vad-silero"]
