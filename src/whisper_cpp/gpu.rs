@@ -45,8 +45,8 @@ pub struct GpuDeviceInfo {
 /// On Metal, `gpu_device` is ignored by whisper.cpp (there is only one Metal
 /// device), but the device is still listed for informational purposes.
 pub fn list_gpu_devices() -> Vec<GpuDeviceInfo> {
-    const TYPE_GPU: u32 = whisper_rs_sys::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_GPU;
-    const TYPE_IGPU: u32 = whisper_rs_sys::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_IGPU;
+    let type_gpu = whisper_rs_sys::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_GPU;
+    let type_igpu = whisper_rs_sys::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_IGPU;
 
     unsafe {
         let count = whisper_rs_sys::ggml_backend_dev_count();
@@ -62,7 +62,7 @@ pub fn list_gpu_devices() -> Vec<GpuDeviceInfo> {
             // Only include actual GPU devices (dedicated or integrated),
             // skip CPU and ACCEL (e.g. Apple Accelerate framework).
             let dev_type = whisper_rs_sys::ggml_backend_dev_type(dev);
-            if dev_type != TYPE_GPU && dev_type != TYPE_IGPU {
+            if dev_type != type_gpu && dev_type != type_igpu {
                 continue;
             }
 
@@ -79,7 +79,7 @@ pub fn list_gpu_devices() -> Vec<GpuDeviceInfo> {
             let mut total: usize = 0;
             whisper_rs_sys::ggml_backend_dev_memory(dev, &mut free, &mut total);
 
-            let kind = if dev_type == TYPE_GPU {
+            let kind = if dev_type == type_gpu {
                 GpuKind::Dedicated
             } else {
                 GpuKind::Integrated
