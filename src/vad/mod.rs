@@ -42,6 +42,18 @@ pub trait Vad: Send {
     /// The frame must be exactly [`frame_size()`](Vad::frame_size) samples.
     fn is_speech(&mut self, frame: &[f32]) -> Result<bool, TranscribeError>;
 
+    /// Drain any buffered prefill audio and return it as a flat sample vector.
+    ///
+    /// Call this immediately after [`is_speech()`](Vad::is_speech) returns `true`
+    /// for the first time (speech onset) to recover pre-onset audio that the
+    /// smoothing/onset logic consumed. The returned samples do **not** include
+    /// the current frame — the caller should append that separately.
+    ///
+    /// Returns an empty vec by default (no prefill support).
+    fn drain_prefill(&mut self) -> Vec<f32> {
+        Vec::new()
+    }
+
     /// Reset internal state. Call between unrelated audio segments.
     fn reset(&mut self);
 }
@@ -111,6 +123,9 @@ pub struct SmoothedVad {
     hangover_counter: usize,
     onset_counter: usize,
     in_speech: bool,
+    /// Set on speech onset, cleared by `drain_prefill()`. Guards against
+    /// draining at the wrong time or double-draining.
+    at_onset: bool,
 }
 
 impl SmoothedVad {
@@ -135,6 +150,7 @@ impl SmoothedVad {
             hangover_counter: 0,
             onset_counter: 0,
             in_speech: false,
+            at_onset: false,
         }
     }
 
@@ -159,7 +175,10 @@ impl Vad for SmoothedVad {
     }
 
     fn is_speech(&mut self, frame: &[f32]) -> Result<bool, TranscribeError> {
-        // Buffer frame for prefill (skip copy if prefill disabled)
+        // Buffer frame for prefill (skip copy if prefill disabled).
+        // The current frame is included in the buffer so that
+        // `drain_prefill()` can pop it off — callers add the current
+        // frame themselves.
         if self.prefill_frames > 0 {
             self.frame_buffer.push_back(frame.to_vec());
             while self.frame_buffer.len() > self.prefill_frames + 1 {
@@ -174,6 +193,7 @@ impl Vad for SmoothedVad {
                 self.onset_counter += 1;
                 if self.onset_counter >= self.onset_frames {
                     self.in_speech = true;
+                    self.at_onset = true;
                     self.hangover_counter = self.hangover_frames;
                     self.onset_counter = 0;
                     Ok(true)
@@ -201,11 +221,28 @@ impl Vad for SmoothedVad {
         }
     }
 
+    fn drain_prefill(&mut self) -> Vec<f32> {
+        if !self.at_onset {
+            return Vec::new();
+        }
+        self.at_onset = false;
+        // Remove the current frame (pushed during the is_speech call that
+        // triggered this drain) — the caller appends it separately.
+        self.frame_buffer.pop_back();
+        let frame_size = self.inner.frame_size();
+        let mut out = Vec::with_capacity(self.frame_buffer.len() * frame_size);
+        for buf in self.frame_buffer.drain(..) {
+            out.extend(buf);
+        }
+        out
+    }
+
     fn reset(&mut self) {
         self.frame_buffer.clear();
         self.hangover_counter = 0;
         self.onset_counter = 0;
         self.in_speech = false;
+        self.at_onset = false;
         self.inner.reset();
     }
 }
@@ -384,6 +421,37 @@ mod tests {
     fn smoothed_frame_size_delegates() {
         let vad = make_smoothed(1, 0, 0);
         assert_eq!(vad.frame_size(), 480);
+    }
+
+    #[test]
+    fn smoothed_drain_prefill_returns_pre_onset_frames() {
+        let mut vad = make_smoothed(2, 0, 5);
+        let speech = vec![1.0f32; 480];
+        let silence = vec![0.0f32; 480];
+
+        // Feed 3 silence frames (buffered as prefill)
+        assert!(!vad.is_speech(&silence).unwrap());
+        assert!(!vad.is_speech(&silence).unwrap());
+        assert!(!vad.is_speech(&silence).unwrap());
+
+        // Feed 2 speech frames to trigger onset (onset_frames=2)
+        assert!(!vad.is_speech(&speech).unwrap()); // onset_counter=1
+        assert!(vad.is_speech(&speech).unwrap()); // onset_counter=2, triggers
+
+        // drain_prefill should return pre-onset frames (excluding current)
+        let prefill = vad.drain_prefill();
+        // Buffer had: [S1, S2, S3, F1, F2], pop F2 → return [S1, S2, S3, F1]
+        assert_eq!(prefill.len(), 4 * 480);
+    }
+
+    #[test]
+    fn smoothed_drain_prefill_empty_without_prefill() {
+        let mut vad = make_smoothed(1, 0, 0); // prefill disabled
+        let speech = vec![1.0f32; 480];
+
+        assert!(vad.is_speech(&speech).unwrap());
+        let prefill = vad.drain_prefill();
+        assert!(prefill.is_empty());
     }
 
     #[test]
