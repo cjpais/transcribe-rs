@@ -45,10 +45,8 @@ pub struct GpuDeviceInfo {
 /// On Metal, `gpu_device` is ignored by whisper.cpp (there is only one Metal
 /// device), but the device is still listed for informational purposes.
 pub fn list_gpu_devices() -> Vec<GpuDeviceInfo> {
-    const TYPE_GPU: u32 =
-        whisper_rs_sys::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_GPU;
-    const TYPE_IGPU: u32 =
-        whisper_rs_sys::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_IGPU;
+    const TYPE_GPU: u32 = whisper_rs_sys::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_GPU;
+    const TYPE_IGPU: u32 = whisper_rs_sys::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_IGPU;
 
     unsafe {
         let count = whisper_rs_sys::ggml_backend_dev_count();
