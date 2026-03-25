@@ -294,7 +294,7 @@ All audio input must be **16 kHz, mono, 16-bit PCM WAV**.
 | Canary 1B Flash | [HuggingFace](https://huggingface.co/istupakov/canary-1b-flash-onnx) |
 | Canary 1B v2 | [HuggingFace](https://huggingface.co/istupakov/canary-1b-v2-onnx) |
 | SenseVoice (int8) | [blob.handy.computer](https://blob.handy.computer/sense-voice-int8.tar.gz) / [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models) |
-| Moonshine | [HuggingFace](https://huggingface.co/UsefulSensors/moonshine/tree/main/onnx/merged) |
+| Moonshine | [blob.handy.computer (base)](https://blob.handy.computer/moonshine-base.tar.gz), [blob.handy.computer (tiny streaming en)](https://blob.handy.computer/moonshine-tiny-streaming-en.tar.gz), [blob.handy.computer (small streaming en)](https://blob.handy.computer/moonshine-small-streaming-en.tar.gz), [blob.handy.computer (medium streaming en)](https://blob.handy.computer/moonshine-medium-streaming-en.tar.gz) |
 | GigaAM | [HuggingFace](https://huggingface.co/istupakov/gigaam-v3-onnx/tree/main) |
 | Whisper (GGML) | [HuggingFace](https://huggingface.co/ggerganov/whisper.cpp/tree/main) |
 | Whisperfile binary | [GitHub](https://github.com/mozilla-ai/llamafile/releases/download/0.9.3/whisperfile-0.9.3) |
