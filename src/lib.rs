@@ -89,8 +89,9 @@ pub mod accel;
 pub mod audio;
 pub mod error;
 pub use accel::{
-    get_ort_accelerator, get_whisper_accelerator, set_ort_accelerator, set_whisper_accelerator,
-    OrtAccelerator, WhisperAccelerator,
+    get_ort_accelerator, get_whisper_accelerator, get_whisper_gpu_device, set_ort_accelerator,
+    set_whisper_accelerator, set_whisper_gpu_device, OrtAccelerator, WhisperAccelerator,
+    GPU_DEVICE_AUTO,
 };
 pub use error::TranscribeError;
 

@@ -26,11 +26,15 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
-use crate::accel::get_whisper_accelerator;
+pub mod gpu;
+
+use crate::accel::{get_whisper_accelerator, get_whisper_gpu_device, GPU_DEVICE_AUTO};
 use crate::{
     ModelCapabilities, SpeechModel, TranscribeError, TranscribeOptions, TranscriptionResult,
     TranscriptionSegment,
 };
+use gpu::auto_select_gpu_device;
+use log::info;
 use std::path::Path;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
@@ -52,7 +56,11 @@ pub struct WhisperLoadParams {
     /// Enable flash attention for faster inference.
     /// Cannot be used with DTW token-level timestamps.
     pub flash_attn: bool,
-    /// GPU device index (0-based). Only relevant with multiple GPUs.
+    /// GPU device index.
+    ///
+    /// - [`GPU_DEVICE_AUTO`] (default): automatically select the best GPU
+    ///   (prefers dedicated over integrated, then most VRAM).
+    /// - `0, 1, 2, …`: use a specific device by backend index.
     pub gpu_device: i32,
 }
 
@@ -61,7 +69,7 @@ impl Default for WhisperLoadParams {
         Self {
             use_gpu: true,
             flash_attn: true,
-            gpu_device: 0,
+            gpu_device: GPU_DEVICE_AUTO,
         }
     }
 }
@@ -131,18 +139,23 @@ pub struct WhisperEngine {
 }
 
 impl WhisperEngine {
-    /// Load a Whisper model, respecting the global accelerator preference.
+    /// Load a Whisper model, respecting the global accelerator and GPU device preferences.
     ///
     /// Use [`load_with_params`](Self::load_with_params) for explicit control.
     pub fn load(model_path: &Path) -> Result<Self, TranscribeError> {
         let params = WhisperLoadParams {
             use_gpu: get_whisper_accelerator().use_gpu(),
+            gpu_device: get_whisper_gpu_device(),
             ..Default::default()
         };
         Self::load_with_params(model_path, params)
     }
 
     /// Load a Whisper model with custom parameters.
+    ///
+    /// When `params.gpu_device` is [`GPU_DEVICE_AUTO`] and GPU is enabled,
+    /// the best GPU is selected automatically (preferring dedicated over
+    /// integrated, then most VRAM).
     pub fn load_with_params(
         model_path: &Path,
         params: WhisperLoadParams,
@@ -151,10 +164,19 @@ impl WhisperEngine {
             return Err(TranscribeError::ModelNotFound(model_path.to_path_buf()));
         }
 
+        let gpu_device = if !params.use_gpu {
+            0
+        } else if params.gpu_device == GPU_DEVICE_AUTO {
+            auto_select_gpu_device()
+        } else {
+            info!("Using user-selected GPU device {}", params.gpu_device);
+            params.gpu_device
+        };
+
         let mut context_params = WhisperContextParameters::default();
         context_params.use_gpu = params.use_gpu;
         context_params.flash_attn = params.flash_attn;
-        context_params.gpu_device = params.gpu_device;
+        context_params.gpu_device = gpu_device;
         let context = WhisperContext::new_with_params(model_path.to_str().unwrap(), context_params)
             .map_err(|e| TranscribeError::Inference(e.to_string()))?;
 
