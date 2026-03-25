@@ -6,7 +6,7 @@
 
 use std::fmt;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicU8, Ordering};
 
 use serde::{Deserialize, Serialize};
 
@@ -211,6 +211,34 @@ impl FromStr for WhisperAccelerator {
 }
 
 // ---------------------------------------------------------------------------
+// Whisper GPU device selection
+// ---------------------------------------------------------------------------
+
+/// Auto-select: let the library pick the best GPU (default).
+pub const GPU_DEVICE_AUTO: i32 = -1;
+
+static WHISPER_GPU_DEVICE: AtomicI32 = AtomicI32::new(GPU_DEVICE_AUTO);
+
+/// Set the preferred GPU device index for whisper.cpp.
+///
+/// - `-1` (default, [`GPU_DEVICE_AUTO`]): automatically select the best device
+///   (prefers dedicated GPUs over integrated ones).
+/// - `0, 1, 2, …`: use a specific device by backend index.
+///
+/// Call before loading a Whisper model; takes effect on next model load.
+pub fn set_whisper_gpu_device(device: i32) {
+    WHISPER_GPU_DEVICE.store(device, Ordering::Relaxed);
+}
+
+/// Get the current whisper GPU device preference.
+///
+/// Returns [`GPU_DEVICE_AUTO`] (`-1`) for automatic selection, or a
+/// non-negative backend-specific device index.
+pub fn get_whisper_gpu_device() -> i32 {
+    WHISPER_GPU_DEVICE.load(Ordering::Relaxed)
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -218,12 +246,13 @@ impl FromStr for WhisperAccelerator {
 mod tests {
     use super::*;
 
-    /// RAII guard that restores Auto preference for both engines when dropped.
+    /// RAII guard that restores Auto preference for all engines when dropped.
     struct AccelGuard;
     impl Drop for AccelGuard {
         fn drop(&mut self) {
             set_ort_accelerator(OrtAccelerator::Auto);
             set_whisper_accelerator(WhisperAccelerator::Auto);
+            set_whisper_gpu_device(GPU_DEVICE_AUTO);
         }
     }
 
@@ -362,5 +391,23 @@ mod tests {
     #[test]
     fn whisper_from_u8_invalid_returns_auto() {
         assert_eq!(WhisperAccelerator::from_u8(255), WhisperAccelerator::Auto);
+    }
+
+    // -- GPU device tests --
+
+    #[test]
+    fn gpu_device_default_is_auto() {
+        let _g = AccelGuard;
+        set_whisper_gpu_device(GPU_DEVICE_AUTO);
+        assert_eq!(get_whisper_gpu_device(), GPU_DEVICE_AUTO);
+    }
+
+    #[test]
+    fn gpu_device_set_and_get() {
+        let _g = AccelGuard;
+        set_whisper_gpu_device(1);
+        assert_eq!(get_whisper_gpu_device(), 1);
+        set_whisper_gpu_device(GPU_DEVICE_AUTO);
+        assert_eq!(get_whisper_gpu_device(), GPU_DEVICE_AUTO);
     }
 }

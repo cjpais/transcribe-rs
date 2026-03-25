@@ -17,7 +17,7 @@ audio-features = ["dep:ndarray", "dep:rustfft"]
 onnx = ["audio-features", "dep:ort", "dep:base64", "dep:regex", "dep:once_cell"]
 
 # Whisper via whisper.cpp (CPU-only by default; add whisper-metal, whisper-vulkan, or whisper-cuda for GPU)
-whisper-cpp = ["dep:whisper-rs"]
+whisper-cpp = ["dep:whisper-rs", "whisper-rs/raw-api"]
 
 # --- Whisper Accelerators ---
 whisper-metal  = ["whisper-cpp", "whisper-rs/metal"]
