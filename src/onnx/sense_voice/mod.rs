@@ -220,6 +220,7 @@ impl SenseVoiceModel {
             f_max: None,
             pre_emphasis: Some(0.97),
             snip_edges: true,
+            remove_dc_offset: false,
             normalize_samples,
         };
         let features = compute_mel(samples, &mel_config);

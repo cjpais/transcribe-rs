@@ -69,6 +69,7 @@ impl GigaAMModel {
             f_max: Some(8000.0),
             pre_emphasis: None,
             snip_edges: false,
+            remove_dc_offset: false,
             normalize_samples: true,
         };
 

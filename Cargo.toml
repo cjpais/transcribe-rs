@@ -101,6 +101,10 @@ name = "canary"
 required-features = ["onnx"]
 
 [[example]]
+name = "fire_red_asr"
+required-features = ["onnx"]
+
+[[example]]
 name = "whisperfile"
 required-features = ["whisperfile"]
 
@@ -134,6 +138,10 @@ required-features = ["onnx"]
 
 [[test]]
 name = "canary"
+required-features = ["onnx"]
+
+[[test]]
+name = "fire_red_asr"
 required-features = ["onnx"]
 
 [[test]]
