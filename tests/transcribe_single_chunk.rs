@@ -1,3 +1,5 @@
+#![cfg(feature = "onnx")]
+
 mod common;
 
 use std::path::PathBuf;
