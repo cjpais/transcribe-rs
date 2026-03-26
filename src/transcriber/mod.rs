@@ -59,7 +59,6 @@ use std::path::Path;
 
 use crate::{audio, SpeechModel, TranscribeError, TranscribeOptions, TranscriptionResult};
 
-
 /// Transcribe a chunk with optional silence padding and timestamp adjustment.
 ///
 /// Prepends and appends `padding_secs` of silence, enforces `min_duration_secs`

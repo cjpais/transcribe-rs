@@ -159,7 +159,10 @@ impl EnergyAdaptiveChunked {
                 );
             }
         }
-        Ok(merge_sequential_with_separator(&self.results, &self.config.merge_separator))
+        Ok(merge_sequential_with_separator(
+            &self.results,
+            &self.config.merge_separator,
+        ))
     }
 
     fn reset_state(&mut self) {
@@ -238,13 +241,22 @@ mod tests {
 
         // The split should have landed in the quiet region (around 2.7-2.8s)
         // rather than exactly at 3.0s. The chunk size in samples tells us where.
-        let chunk_samples: usize = results[0].text.strip_prefix("chunk_").unwrap().parse().unwrap();
+        let chunk_samples: usize = results[0]
+            .text
+            .strip_prefix("chunk_")
+            .unwrap()
+            .parse()
+            .unwrap();
         let chunk_secs = chunk_samples as f32 / SAMPLE_RATE;
-        assert!(chunk_secs >= 2.5 && chunk_secs <= 3.5,
-            "split at {chunk_secs:.2}s, expected within search window of 3.0s");
+        assert!(
+            chunk_secs >= 2.5 && chunk_secs <= 3.5,
+            "split at {chunk_secs:.2}s, expected within search window of 3.0s"
+        );
         // Should be closer to 2.8 than to 3.0
-        assert!(chunk_secs < 3.0,
-            "split at {chunk_secs:.2}s, should prefer quiet region before target");
+        assert!(
+            chunk_secs < 3.0,
+            "split at {chunk_secs:.2}s, should prefer quiet region before target"
+        );
     }
 
     #[test]
@@ -347,8 +359,16 @@ mod tests {
 
         // With 500ms padding on the first chunk (start=0), timestamps must be >= 0
         let segs = results[0].segments.as_ref().unwrap();
-        assert!(segs[0].start >= 0.0, "timestamp should not be negative, got {}", segs[0].start);
-        assert!(segs[0].end >= 0.0, "timestamp should not be negative, got {}", segs[0].end);
+        assert!(
+            segs[0].start >= 0.0,
+            "timestamp should not be negative, got {}",
+            segs[0].start
+        );
+        assert!(
+            segs[0].end >= 0.0,
+            "timestamp should not be negative, got {}",
+            segs[0].end
+        );
     }
 
     #[test]
@@ -387,9 +407,10 @@ mod tests {
             search_window_secs: 0.3,
             ..Default::default()
         };
-        let mut transcriber: Box<dyn Transcriber> = Box::new(
-            EnergyAdaptiveChunked::new(config, TranscribeOptions::default()),
-        );
+        let mut transcriber: Box<dyn Transcriber> = Box::new(EnergyAdaptiveChunked::new(
+            config,
+            TranscribeOptions::default(),
+        ));
         let mut model = MockModel;
 
         let audio = vec![0.5f32; 16000 * 5];

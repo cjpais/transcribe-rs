@@ -69,11 +69,7 @@ pub struct VadChunked {
 }
 
 impl VadChunked {
-    pub fn new(
-        vad: Box<dyn Vad>,
-        config: VadChunkedConfig,
-        options: TranscribeOptions,
-    ) -> Self {
+    pub fn new(vad: Box<dyn Vad>, config: VadChunkedConfig, options: TranscribeOptions) -> Self {
         Self {
             vad,
             config,
@@ -130,10 +126,10 @@ impl VadChunked {
 
         // Drain the chunk; remainder stays in speech_buffer.
         let chunk: Vec<f32> = self.speech_buffer.drain(..best_offset).collect();
-        let chunk_start_secs = self
-            .speech_start_sample
-            .unwrap_or_else(|| self.elapsed_samples.saturating_sub(self.speech_buffer.len() + chunk.len()))
-            as f32
+        let chunk_start_secs = self.speech_start_sample.unwrap_or_else(|| {
+            self.elapsed_samples
+                .saturating_sub(self.speech_buffer.len() + chunk.len())
+        }) as f32
             / SAMPLE_RATE;
 
         // Update speech_start_sample for the remainder
@@ -211,12 +207,17 @@ impl VadChunked {
         }
 
         if !self.speech_buffer.is_empty() {
-            log::info!("finish: transcribing remaining buffer ({:.2}s)",
-                self.speech_buffer.len() as f32 / SAMPLE_RATE);
+            log::info!(
+                "finish: transcribing remaining buffer ({:.2}s)",
+                self.speech_buffer.len() as f32 / SAMPLE_RATE
+            );
             self.flush_speech_buffer(model)?;
         }
         log::info!("session complete: {} chunks transcribed", self.chunk_index);
-        Ok(merge_sequential_with_separator(&self.results, &self.config.merge_separator))
+        Ok(merge_sequential_with_separator(
+            &self.results,
+            &self.config.merge_separator,
+        ))
     }
 
     fn reset_state(&mut self) {
@@ -264,9 +265,8 @@ impl Transcriber for VadChunked {
                 if self.speech_buffer.is_empty() && self.speech_start_sample.is_none() {
                     // Speech onset — recover pre-onset audio from VAD prefill
                     let prefill = self.vad.drain_prefill();
-                    self.speech_start_sample = Some(
-                        (self.elapsed_samples - frame_size).saturating_sub(prefill.len()),
-                    );
+                    self.speech_start_sample =
+                        Some((self.elapsed_samples - frame_size).saturating_sub(prefill.len()));
                     self.speech_buffer.extend_from_slice(&prefill);
                 }
                 self.speech_buffer.extend_from_slice(frame);
@@ -275,9 +275,11 @@ impl Transcriber for VadChunked {
                 // Force-split if exceeding max duration
                 let chunk_secs = self.speech_buffer.len() as f32 / SAMPLE_RATE;
                 if chunk_secs >= self.config.max_chunk_secs {
-                    log::info!("force-splitting at {:.2}s (max_chunk_secs={:.2})",
+                    log::info!(
+                        "force-splitting at {:.2}s (max_chunk_secs={:.2})",
                         self.elapsed_samples as f32 / SAMPLE_RATE,
-                        self.config.max_chunk_secs);
+                        self.config.max_chunk_secs
+                    );
                     let result = if let Some(search_secs) = self.config.smart_split_search_secs {
                         self.smart_split_buffer(model, search_secs)?
                     } else {
@@ -291,15 +293,20 @@ impl Transcriber for VadChunked {
                 if !self.speech_buffer.is_empty() {
                     let chunk_secs = self.speech_buffer.len() as f32 / SAMPLE_RATE;
                     if chunk_secs >= self.config.min_chunk_secs {
-                        log::info!("speech->silence at {:.2}s, chunk buffered={:.2}s",
+                        log::info!(
+                            "speech->silence at {:.2}s, chunk buffered={:.2}s",
                             self.elapsed_samples as f32 / SAMPLE_RATE,
-                            chunk_secs);
+                            chunk_secs
+                        );
                         new_results.push(self.flush_speech_buffer(model)?);
                     } else {
                         // Keep short speech in buffer so it merges with the
                         // next speech region (don't lose brief utterances)
-                        log::debug!("carrying forward short chunk ({:.2}s < min {:.2}s)",
-                            chunk_secs, self.config.min_chunk_secs);
+                        log::debug!(
+                            "carrying forward short chunk ({:.2}s < min {:.2}s)",
+                            chunk_secs,
+                            self.config.min_chunk_secs
+                        );
                     }
                 }
             }
@@ -321,9 +328,7 @@ impl Transcriber for VadChunked {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transcriber::test_helpers::{
-        make_silence, make_speech, FailOnNthModel, MockModel,
-    };
+    use crate::transcriber::test_helpers::{make_silence, make_speech, FailOnNthModel, MockModel};
     use crate::vad::{EnergyVad, SmoothedVad};
 
     #[test]
@@ -333,11 +338,7 @@ mod tests {
             min_chunk_secs: 0.0, // no minimum for test
             ..Default::default()
         };
-        let mut t = VadChunked::new(
-            Box::new(vad),
-            config,
-            TranscribeOptions::default(),
-        );
+        let mut t = VadChunked::new(Box::new(vad), config, TranscribeOptions::default());
         let mut model = MockModel;
 
         // Feed speech frames
@@ -359,11 +360,7 @@ mod tests {
             min_chunk_secs: 0.0,
             ..Default::default()
         };
-        let mut t = VadChunked::new(
-            Box::new(vad),
-            config,
-            TranscribeOptions::default(),
-        );
+        let mut t = VadChunked::new(Box::new(vad), config, TranscribeOptions::default());
         let mut model = MockModel;
 
         // Feed only speech, no silence
@@ -384,11 +381,7 @@ mod tests {
             max_chunk_secs: 0.06, // 60ms = 960 samples = 2 frames
             ..Default::default()
         };
-        let mut t = VadChunked::new(
-            Box::new(vad),
-            config,
-            TranscribeOptions::default(),
-        );
+        let mut t = VadChunked::new(Box::new(vad), config, TranscribeOptions::default());
         let mut model = MockModel;
 
         // Feed 10 frames of speech — should force-split multiple times
@@ -404,11 +397,7 @@ mod tests {
             min_chunk_secs: 1.0, // 1 second minimum
             ..Default::default()
         };
-        let mut t = VadChunked::new(
-            Box::new(vad),
-            config,
-            TranscribeOptions::default(),
-        );
+        let mut t = VadChunked::new(Box::new(vad), config, TranscribeOptions::default());
         let mut model = MockModel;
 
         // Feed very short speech (1 frame = 30ms) then silence
@@ -437,11 +426,7 @@ mod tests {
             min_chunk_secs: 1.0,
             ..Default::default()
         };
-        let mut t = VadChunked::new(
-            Box::new(vad),
-            config,
-            TranscribeOptions::default(),
-        );
+        let mut t = VadChunked::new(Box::new(vad), config, TranscribeOptions::default());
         let mut model = MockModel;
 
         // Speech at t=0 (1 frame), silence gap, then more speech
@@ -461,7 +446,11 @@ mod tests {
         // Timestamp should reflect the start of the first speech (t=0),
         // not the back-calculated position
         let segs = results[0].segments.as_ref().unwrap();
-        assert!(segs[0].start < 0.01, "expected start near 0.0, got {}", segs[0].start);
+        assert!(
+            segs[0].start < 0.01,
+            "expected start near 0.0, got {}",
+            segs[0].start
+        );
     }
 
     #[test]
@@ -471,11 +460,7 @@ mod tests {
             min_chunk_secs: 0.0,
             ..Default::default()
         };
-        let mut t = VadChunked::new(
-            Box::new(vad),
-            config,
-            TranscribeOptions::default(),
-        );
+        let mut t = VadChunked::new(Box::new(vad), config, TranscribeOptions::default());
         let mut model = MockModel;
 
         // Feed silence first (1 second = ~33 frames at 480)
@@ -504,11 +489,7 @@ mod tests {
             padding_secs: 0.5, // 500ms padding
             ..Default::default()
         };
-        let mut t = VadChunked::new(
-            Box::new(vad),
-            config,
-            TranscribeOptions::default(),
-        );
+        let mut t = VadChunked::new(Box::new(vad), config, TranscribeOptions::default());
         let mut model = MockModel;
 
         // Feed speech immediately (chunk_start_secs ≈ 0)
@@ -521,8 +502,16 @@ mod tests {
 
         // With 500ms padding and chunk starting near 0, timestamps must be >= 0
         let segs = results[0].segments.as_ref().unwrap();
-        assert!(segs[0].start >= 0.0, "timestamp should not be negative, got {}", segs[0].start);
-        assert!(segs[0].end >= 0.0, "timestamp should not be negative, got {}", segs[0].end);
+        assert!(
+            segs[0].start >= 0.0,
+            "timestamp should not be negative, got {}",
+            segs[0].start
+        );
+        assert!(
+            segs[0].end >= 0.0,
+            "timestamp should not be negative, got {}",
+            segs[0].end
+        );
     }
 
     #[test]
@@ -533,11 +522,7 @@ mod tests {
             max_chunk_secs: 0.06, // force split every 2 frames
             ..Default::default()
         };
-        let mut t = VadChunked::new(
-            Box::new(vad),
-            config,
-            TranscribeOptions::default(),
-        );
+        let mut t = VadChunked::new(Box::new(vad), config, TranscribeOptions::default());
         let mut model = FailOnNthModel::new(2); // fail on 2nd chunk
 
         // Feed enough speech for 4+ chunks — should error on 2nd chunk
@@ -553,11 +538,7 @@ mod tests {
             min_chunk_secs: 0.0,
             ..Default::default()
         };
-        let mut t = VadChunked::new(
-            Box::new(vad),
-            config,
-            TranscribeOptions::default(),
-        );
+        let mut t = VadChunked::new(Box::new(vad), config, TranscribeOptions::default());
         let mut model = MockModel;
 
         let speech = make_speech(480, 10);
@@ -574,11 +555,7 @@ mod tests {
             smart_split_search_secs: Some(0.15), // search last 150ms (5 frames)
             ..Default::default()
         };
-        let mut t = VadChunked::new(
-            Box::new(vad),
-            config,
-            TranscribeOptions::default(),
-        );
+        let mut t = VadChunked::new(Box::new(vad), config, TranscribeOptions::default());
         let mut model = MockModel;
 
         // Build 12 frames of speech where frame 7 (0-indexed) is quieter.
@@ -605,15 +582,11 @@ mod tests {
         let vad = EnergyVad::new(480, 0.01);
         let config = VadChunkedConfig {
             min_chunk_secs: 0.0,
-            max_chunk_secs: 0.06, // 60ms = 2 frames
+            max_chunk_secs: 0.06,          // 60ms = 2 frames
             smart_split_search_secs: None, // disabled
             ..Default::default()
         };
-        let mut t = VadChunked::new(
-            Box::new(vad),
-            config,
-            TranscribeOptions::default(),
-        );
+        let mut t = VadChunked::new(Box::new(vad), config, TranscribeOptions::default());
         let mut model = MockModel;
 
         // All uniform energy — with smart split disabled, hard-cuts at exactly 2 frames
@@ -630,11 +603,7 @@ mod tests {
             min_chunk_secs: 0.0,
             ..Default::default()
         };
-        let mut t = VadChunked::new(
-            Box::new(vad),
-            config,
-            TranscribeOptions::default(),
-        );
+        let mut t = VadChunked::new(Box::new(vad), config, TranscribeOptions::default());
         let mut model = MockModel;
 
         // speech -> silence -> speech -> silence
@@ -678,11 +647,7 @@ mod tests {
             min_chunk_secs: 0.0,
             ..Default::default()
         };
-        let mut t = VadChunked::new(
-            Box::new(vad),
-            config,
-            TranscribeOptions::default(),
-        );
+        let mut t = VadChunked::new(Box::new(vad), config, TranscribeOptions::default());
         let mut model = MockModel;
 
         // Feed 3 frames of speech then silence to trigger transcription.
@@ -706,11 +671,7 @@ mod tests {
             min_chunk_secs: 0.0,
             ..Default::default()
         };
-        let mut t = VadChunked::new(
-            Box::new(vad),
-            config,
-            TranscribeOptions::default(),
-        );
+        let mut t = VadChunked::new(Box::new(vad), config, TranscribeOptions::default());
         let mut model = MockModel;
 
         // 3 silence frames, then 3 speech frames, then silence
@@ -729,7 +690,11 @@ mod tests {
         // silence region. The first speech frame starts at sample 3*480=1440,
         // and prefill includes 3 silence frames before it, so start ≈ 0.
         let segs = results[0].segments.as_ref().unwrap();
-        assert!(segs[0].start < 0.01, "expected start near 0.0, got {}", segs[0].start);
+        assert!(
+            segs[0].start < 0.01,
+            "expected start near 0.0, got {}",
+            segs[0].start
+        );
     }
 
     #[test]
@@ -739,11 +704,7 @@ mod tests {
             min_chunk_secs: 0.0,
             ..Default::default()
         };
-        let mut t = VadChunked::new(
-            Box::new(vad),
-            config,
-            TranscribeOptions::default(),
-        );
+        let mut t = VadChunked::new(Box::new(vad), config, TranscribeOptions::default());
         let mut model = MockModel;
 
         // Feed 1000 samples (2 full frames of 480 + 40 remainder)
@@ -772,11 +733,7 @@ mod tests {
             min_chunk_secs: 0.0,
             ..Default::default()
         };
-        let mut t = VadChunked::new(
-            Box::new(vad),
-            config,
-            TranscribeOptions::default(),
-        );
+        let mut t = VadChunked::new(Box::new(vad), config, TranscribeOptions::default());
 
         // First session: force an error during finish
         let speech = make_speech(480, 10);

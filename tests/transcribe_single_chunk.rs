@@ -20,7 +20,11 @@ fn transcribe_fixed_chunk_002_parakeet() {
         ParakeetModel::load(&model_path, &Quantization::Int8).expect("Failed to load model");
 
     let samples = read_wav_samples(&chunk_path).expect("Failed to read chunk");
-    println!("fixed_chunk_002: {} samples, {:.2}s", samples.len(), samples.len() as f32 / 16000.0);
+    println!(
+        "fixed_chunk_002: {} samples, {:.2}s",
+        samples.len(),
+        samples.len() as f32 / 16000.0
+    );
 
     let result = model
         .transcribe(&samples, &transcribe_rs::TranscribeOptions::default())
@@ -42,7 +46,11 @@ fn transcribe_fixed_chunk_002_canary() {
         CanaryModel::load(&model_path, &Quantization::Int8).expect("Failed to load model");
 
     let samples = read_wav_samples(&chunk_path).expect("Failed to read chunk");
-    println!("fixed_chunk_002: {} samples, {:.2}s", samples.len(), samples.len() as f32 / 16000.0);
+    println!(
+        "fixed_chunk_002: {} samples, {:.2}s",
+        samples.len(),
+        samples.len() as f32 / 16000.0
+    );
 
     let result = model
         .transcribe(&samples, &transcribe_rs::TranscribeOptions::default())

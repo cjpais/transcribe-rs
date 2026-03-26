@@ -69,7 +69,10 @@ fn compare_oneshot_vs_chunked() {
 
     // All three should produce non-empty output
     assert!(!oneshot.text.is_empty(), "one-shot produced empty text");
-    assert!(!energy.text.is_empty(), "energy adaptive produced empty text");
+    assert!(
+        !energy.text.is_empty(),
+        "energy adaptive produced empty text"
+    );
     assert!(
         !vad_result.text.is_empty(),
         "vad chunked produced empty text"
@@ -131,10 +134,16 @@ fn compare_streaming_energy_adaptive() {
     for (i, text) in energy_intermediate.iter().enumerate() {
         println!("  chunk {}: \"{}\"", i, text.trim());
     }
-    println!("ENERGY ADAPTIVE 3s MERGED ({} chars):", energy_result.text.len());
+    println!(
+        "ENERGY ADAPTIVE 3s MERGED ({} chars):",
+        energy_result.text.len()
+    );
     println!("{}", energy_result.text);
 
     println!("{}", "=".repeat(60));
 
-    assert!(!energy_result.text.is_empty(), "energy adaptive produced empty text");
+    assert!(
+        !energy_result.text.is_empty(),
+        "energy adaptive produced empty text"
+    );
 }
