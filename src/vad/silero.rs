@@ -62,7 +62,13 @@ impl SileroVad {
             .with_inter_threads(1)
             .map_err(|e| TranscribeError::Config(format!("ort inter threads: {e}")))?
             .commit_from_file(path)
-            .map_err(|_| TranscribeError::ModelNotFound(path.to_path_buf()))?;
+            .map_err(|e| {
+                if !path.exists() {
+                    TranscribeError::ModelNotFound(path.to_path_buf())
+                } else {
+                    TranscribeError::Inference(format!("failed to load VAD model: {e}"))
+                }
+            })?;
 
         Ok(Self {
             session,

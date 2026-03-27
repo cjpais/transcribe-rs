@@ -196,7 +196,11 @@ impl VadChunked {
         &mut self,
         model: &mut dyn SpeechModel,
     ) -> Result<TranscriptionResult, TranscribeError> {
-        // Flush any pending sub-frame samples into the speech buffer
+        // Flush any pending sub-frame samples into the speech buffer.
+        // Pending holds at most frame_size-1 samples (~29ms at 480/16kHz) that
+        // were never VAD-classified. This is practically harmless: if we're in a
+        // speech region the tail belongs there, and if not, the model will produce
+        // empty/whitespace text that merge filters out.
         if !self.pending.is_empty() {
             let pending = std::mem::take(&mut self.pending);
             if self.speech_buffer.is_empty() && self.speech_start_sample.is_none() {
@@ -262,11 +266,13 @@ impl Transcriber for VadChunked {
             self.elapsed_samples += frame_size;
 
             if is_speech {
-                if self.speech_buffer.is_empty() && self.speech_start_sample.is_none() {
+                if !self.in_speech {
                     // Speech onset — recover pre-onset audio from VAD prefill
                     let prefill = self.vad.drain_prefill();
-                    self.speech_start_sample =
-                        Some((self.elapsed_samples - frame_size).saturating_sub(prefill.len()));
+                    if self.speech_start_sample.is_none() {
+                        self.speech_start_sample =
+                            Some((self.elapsed_samples - frame_size).saturating_sub(prefill.len()));
+                    }
                     self.speech_buffer.extend_from_slice(&prefill);
                 }
                 self.speech_buffer.extend_from_slice(frame);
