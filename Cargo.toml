@@ -148,5 +148,9 @@ name = "openai"
 required-features = ["openai"]
 
 [[test]]
+name = "transcriber"
+required-features = ["onnx", "vad-silero"]
+
+[[test]]
 name = "vad_silero"
 required-features = ["vad-silero"]
