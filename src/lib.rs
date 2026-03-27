@@ -102,6 +102,9 @@ pub mod features;
 #[cfg(feature = "onnx")]
 pub mod onnx;
 
+pub mod transcriber;
+pub mod vad;
+
 #[cfg(feature = "whisper-cpp")]
 pub mod whisper_cpp;
 #[cfg(feature = "whisperfile")]
@@ -174,7 +177,7 @@ pub trait SpeechModel: Send {
 ///
 /// Contains both the full transcribed text and detailed timing information
 /// for individual segments within the audio.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TranscriptionResult {
     /// The complete transcribed text from the audio
     pub text: String,
@@ -186,7 +189,7 @@ pub struct TranscriptionResult {
 ///
 /// Represents a portion of the transcribed audio with start and end timestamps
 /// and the corresponding text content.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TranscriptionSegment {
     /// Start time of the segment in seconds
     pub start: f32,

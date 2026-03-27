@@ -245,9 +245,19 @@ pub fn get_whisper_gpu_device() -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
 
-    /// RAII guard that restores Auto preference for all engines when dropped.
-    struct AccelGuard;
+    /// Tests that mutate global accelerator state must hold this lock.
+    static ACCEL_LOCK: Mutex<()> = Mutex::new(());
+
+    /// RAII guard that serialises access to global state and restores defaults when dropped.
+    struct AccelGuard(#[allow(dead_code)] std::sync::MutexGuard<'static, ()>);
+    impl AccelGuard {
+        fn new() -> Self {
+            let g = ACCEL_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+            Self(g)
+        }
+    }
     impl Drop for AccelGuard {
         fn drop(&mut self) {
             set_ort_accelerator(OrtAccelerator::Auto);
@@ -260,14 +270,14 @@ mod tests {
 
     #[test]
     fn ort_default_is_auto() {
-        let _g = AccelGuard;
+        let _g = AccelGuard::new();
         set_ort_accelerator(OrtAccelerator::Auto);
         assert_eq!(get_ort_accelerator(), OrtAccelerator::Auto);
     }
 
     #[test]
     fn ort_set_and_get() {
-        let _g = AccelGuard;
+        let _g = AccelGuard::new();
         set_ort_accelerator(OrtAccelerator::Cuda);
         assert_eq!(get_ort_accelerator(), OrtAccelerator::Cuda);
         set_ort_accelerator(OrtAccelerator::CpuOnly);
@@ -334,14 +344,14 @@ mod tests {
 
     #[test]
     fn whisper_default_is_auto() {
-        let _g = AccelGuard;
+        let _g = AccelGuard::new();
         set_whisper_accelerator(WhisperAccelerator::Auto);
         assert_eq!(get_whisper_accelerator(), WhisperAccelerator::Auto);
     }
 
     #[test]
     fn whisper_set_and_get() {
-        let _g = AccelGuard;
+        let _g = AccelGuard::new();
         set_whisper_accelerator(WhisperAccelerator::CpuOnly);
         assert_eq!(get_whisper_accelerator(), WhisperAccelerator::CpuOnly);
         set_whisper_accelerator(WhisperAccelerator::Gpu);
@@ -397,14 +407,14 @@ mod tests {
 
     #[test]
     fn gpu_device_default_is_auto() {
-        let _g = AccelGuard;
+        let _g = AccelGuard::new();
         set_whisper_gpu_device(GPU_DEVICE_AUTO);
         assert_eq!(get_whisper_gpu_device(), GPU_DEVICE_AUTO);
     }
 
     #[test]
     fn gpu_device_set_and_get() {
-        let _g = AccelGuard;
+        let _g = AccelGuard::new();
         set_whisper_gpu_device(1);
         assert_eq!(get_whisper_gpu_device(), 1);
         set_whisper_gpu_device(GPU_DEVICE_AUTO);

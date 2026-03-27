@@ -119,6 +119,23 @@ jobs:
       - name: Run Tests (SenseVoice)
         run: cargo test --features onnx
 
+      - name: Cache Silero VAD Model
+        id: cache-silero-vad
+        uses: actions/cache@v5
+        with:
+          path: models/silero_vad_v4.onnx
+          key: ${{ runner.os }}-silero-vad-v4
+
+      - name: Download Silero VAD
+        if: steps.cache-silero-vad.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          mkdir -p models
+          curl -sLo models/silero_vad_v4.onnx https://blob.handy.computer/silero_vad_v4.onnx
+
+      - name: Run Tests (VAD + Transcriber)
+        run: cargo test --features "onnx,vad-silero"
+
       - name: Cache Whisper Model
         id: cache-whisper
         uses: actions/cache@v5
