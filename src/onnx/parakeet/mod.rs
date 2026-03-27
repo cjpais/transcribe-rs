@@ -47,6 +47,21 @@ type DecoderState = (Array3<f32>, Array3<f32>);
 const SUBSAMPLING_FACTOR: usize = 8;
 const WINDOW_SIZE: f32 = 0.01;
 const MAX_TOKENS_PER_STEP: usize = 10;
+const SAMPLE_RATE: usize = 16000;
+
+/// Maximum chunk duration in seconds for the encoder.
+///
+/// The Conformer encoder uses relative positional attention with a fixed-size
+/// embedding table. Audio longer than roughly 90 seconds exceeds that table and
+/// causes a shape-mismatch error at runtime. We chunk at 30 seconds to stay
+/// well within the limit while keeping each chunk long enough for good context.
+const MAX_CHUNK_SECS: usize = 30;
+
+/// Overlap in seconds between adjacent chunks.
+///
+/// A small overlap gives the encoder context at chunk boundaries so words that
+/// straddle the cut point are less likely to be garbled.
+const CHUNK_OVERLAP_SECS: usize = 1;
 
 static DECODE_SPACE_RE: Lazy<Result<Regex, regex::Error>> =
     Lazy::new(|| Regex::new(r"\A\s|\s\B|(\s)\b"));
@@ -409,10 +424,55 @@ impl ParakeetModel {
         &mut self,
         samples: Vec<f32>,
     ) -> Result<TimestampedResult, TranscribeError> {
-        let batch_size = 1;
-        let samples_len = samples.len();
+        let chunk_samples = MAX_CHUNK_SECS * SAMPLE_RATE;
 
-        let waveforms = Array2::from_shape_vec((batch_size, samples_len), samples)?.into_dyn();
+        if samples.len() <= chunk_samples {
+            return self.transcribe_single_chunk(samples);
+        }
+
+        // Audio exceeds the encoder's positional-attention window.
+        // Split into overlapping chunks, transcribe each, merge.
+        let overlap_samples = CHUNK_OVERLAP_SECS * SAMPLE_RATE;
+        let step = chunk_samples - overlap_samples;
+        let total_secs = samples.len() as f32 / SAMPLE_RATE as f32;
+        let num_chunks = (samples.len() + step - 1) / step;
+
+        log::info!(
+            "Audio is {:.1}s, chunking into {} × {}s segments for encoder",
+            total_secs,
+            num_chunks,
+            MAX_CHUNK_SECS,
+        );
+
+        let mut chunk_results = Vec::new();
+        let mut offset = 0;
+
+        while offset < samples.len() {
+            let end = (offset + chunk_samples).min(samples.len());
+            let chunk = samples[offset..end].to_vec();
+            let chunk_offset_secs = offset as f32 / SAMPLE_RATE as f32;
+
+            let mut result = self.transcribe_single_chunk(chunk)?;
+
+            // Shift timestamps so they are relative to the original audio
+            for ts in &mut result.timestamps {
+                *ts += chunk_offset_secs;
+            }
+
+            chunk_results.push(result);
+            offset += step;
+        }
+
+        Ok(merge_timestamped_results(chunk_results))
+    }
+
+    /// Transcribe a single chunk that fits within the encoder window.
+    fn transcribe_single_chunk(
+        &mut self,
+        samples: Vec<f32>,
+    ) -> Result<TimestampedResult, TranscribeError> {
+        let samples_len = samples.len();
+        let waveforms = Array2::from_shape_vec((1, samples_len), samples)?.into_dyn();
         let waveforms_lens = Array1::from_vec(vec![samples_len as i64]).into_dyn();
 
         let results = self.recognize_batch(&waveforms.view(), &waveforms_lens.view())?;
@@ -434,6 +494,36 @@ impl SpeechModel for ParakeetModel {
         _options: &TranscribeOptions,
     ) -> Result<TranscriptionResult, TranscribeError> {
         self.infer(samples, &TimestampGranularity::default())
+    }
+}
+
+// ---- Chunk merging ----
+
+/// Merge transcription results from sequential chunks into a single result.
+///
+/// Text from each chunk is trimmed and joined with spaces. Tokens and
+/// timestamps are concatenated directly — timestamps must already be
+/// adjusted to absolute positions by the caller.
+fn merge_timestamped_results(results: Vec<TimestampedResult>) -> TimestampedResult {
+    let mut all_tokens = Vec::new();
+    let mut all_timestamps = Vec::new();
+
+    for result in &results {
+        all_tokens.extend(result.tokens.iter().cloned());
+        all_timestamps.extend(result.timestamps.iter().copied());
+    }
+
+    let text = results
+        .iter()
+        .map(|r| r.text.trim())
+        .filter(|t| !t.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    TimestampedResult {
+        text,
+        timestamps: all_timestamps,
+        tokens: all_tokens,
     }
 }
 
