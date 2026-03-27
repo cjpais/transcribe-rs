@@ -131,7 +131,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p models
-          curl -sLo models/silero_vad_v4.onnx https://github.com/snakers4/silero-vad/raw/master/src/silero_vad/data/silero_vad.onnx
+          curl -sLo models/silero_vad_v4.onnx https://blob.handy.computer/silero_vad_v4.onnx
 
       - name: Run Tests (VAD + Transcriber)
         run: cargo test --features "onnx,vad-silero"
