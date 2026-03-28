@@ -218,6 +218,12 @@ impl Qwen3AsrModel {
         for _ in 1..max_tokens {
             // Embedding lookup from cached FP32 table (fast ndarray row copy).
             let token_embed = {
+                if current_token < 0 {
+                    return Err(TranscribeError::Inference(format!(
+                        "decoder produced negative token ID: {}",
+                        current_token
+                    )));
+                }
                 let id = current_token as usize;
                 if id >= self.embed_tokens.nrows() {
                     return Err(TranscribeError::Inference(format!(
