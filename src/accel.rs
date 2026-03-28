@@ -26,6 +26,7 @@ use serde::{Deserialize, Serialize};
 /// is specifically required.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 #[repr(u8)]
 pub enum OrtAccelerator {
     /// Automatically select the best available execution provider (default).
