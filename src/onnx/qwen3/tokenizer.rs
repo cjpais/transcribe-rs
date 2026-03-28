@@ -119,7 +119,7 @@ fn build_gpt2_byte_decoder() -> HashMap<char, u8> {
     let mut n = 256u32;
     for b in 0u8..=255u8 {
         if let std::collections::hash_map::Entry::Vacant(e) = byte_encoder.entry(b) {
-            e.insert(char::from_u32(n).unwrap());
+            e.insert(char::from_u32(n).expect("BPE byte range always valid Unicode"));
             n += 1;
         }
     }
