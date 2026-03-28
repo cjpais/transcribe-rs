@@ -45,6 +45,8 @@ GPU accelerator features for ORT engines:
 | `ort-cuda` | NVIDIA CUDA |
 | `ort-rocm` | AMD ROCm |
 | `ort-directml` | Microsoft DirectML (Windows) |
+| `ort-coreml` | Apple CoreML (macOS/iOS) |
+| `ort-webgpu` | WebGPU via Dawn |
 
 ## Quick Start
 

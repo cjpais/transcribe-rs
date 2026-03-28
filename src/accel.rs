@@ -15,20 +15,40 @@ use serde::{Deserialize, Serialize};
 // ---------------------------------------------------------------------------
 
 /// Preferred hardware accelerator for ORT-based engines (SenseVoice, GigaAM, Parakeet, Moonshine).
+///
+/// Each variant requires its corresponding `ort-*` feature flag to be enabled at compile time.
+/// If the selected accelerator's feature is not enabled, session creation falls back to CPU
+/// with a log warning.
+///
+/// **Binary size note:** Enabling `ort-cuda` pulls in the CUDA execution provider libraries
+/// (~800 MB+), significantly increasing the final binary and its runtime dependencies
+/// (CUDA toolkit / cuDNN). Prefer `CpuOnly` or lighter providers unless GPU acceleration
+/// is specifically required.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 #[repr(u8)]
 pub enum OrtAccelerator {
     /// Automatically select the best available execution provider (default).
+    /// DirectML and WebGPU are excluded from auto-selection because they
+    /// require sequential execution mode; set them explicitly to use.
     Auto = 0,
     /// Force CPU-only execution — no GPU providers.
+    #[serde(rename = "cpu", alias = "cpu_only")]
     CpuOnly = 1,
-    /// NVIDIA CUDA.
+    /// NVIDIA CUDA (requires `ort-cuda` feature; adds ~800 MB to binary size).
     Cuda = 2,
     /// Microsoft DirectML (Windows).
+    #[serde(rename = "directml", alias = "direct_ml")]
     DirectMl = 3,
     /// AMD ROCm.
     Rocm = 4,
+    /// Apple CoreML (macOS/iOS — Neural Engine, GPU, or CPU).
+    #[serde(rename = "coreml")]
+    CoreMl = 5,
+    /// WebGPU via Dawn (Windows, Linux, WebAssembly).
+    #[serde(rename = "webgpu")]
+    WebGpu = 6,
 }
 
 static ORT_ACCELERATOR: AtomicU8 = AtomicU8::new(OrtAccelerator::Auto as u8);
@@ -63,6 +83,12 @@ impl OrtAccelerator {
         #[cfg(feature = "ort-rocm")]
         v.push(OrtAccelerator::Rocm);
 
+        #[cfg(feature = "ort-coreml")]
+        v.push(OrtAccelerator::CoreMl);
+
+        #[cfg(feature = "ort-webgpu")]
+        v.push(OrtAccelerator::WebGpu);
+
         v
     }
 
@@ -73,6 +99,8 @@ impl OrtAccelerator {
             2 => Self::Cuda,
             3 => Self::DirectMl,
             4 => Self::Rocm,
+            5 => Self::CoreMl,
+            6 => Self::WebGpu,
             _ => Self::Auto,
         }
     }
@@ -92,6 +120,8 @@ impl fmt::Display for OrtAccelerator {
             Self::Cuda => "cuda",
             Self::DirectMl => "directml",
             Self::Rocm => "rocm",
+            Self::CoreMl => "coreml",
+            Self::WebGpu => "webgpu",
         };
         f.write_str(s)
     }
@@ -107,6 +137,8 @@ impl FromStr for OrtAccelerator {
             "cuda" => Ok(Self::Cuda),
             "directml" | "dml" => Ok(Self::DirectMl),
             "rocm" => Ok(Self::Rocm),
+            "coreml" | "core_ml" => Ok(Self::CoreMl),
+            "webgpu" | "web_gpu" => Ok(Self::WebGpu),
             other => Err(format!("unknown ORT accelerator: {other}")),
         }
     }
@@ -292,6 +324,8 @@ mod tests {
             OrtAccelerator::Cuda,
             OrtAccelerator::DirectMl,
             OrtAccelerator::Rocm,
+            OrtAccelerator::CoreMl,
+            OrtAccelerator::WebGpu,
         ] {
             let s = pref.to_string();
             let parsed: OrtAccelerator = s.parse().unwrap();
@@ -322,11 +356,30 @@ mod tests {
 
     #[test]
     fn ort_serde_roundtrip() {
-        let pref = OrtAccelerator::Cuda;
-        let json = serde_json::to_string(&pref).unwrap();
-        assert_eq!(json, "\"cuda\"");
-        let back: OrtAccelerator = serde_json::from_str(&json).unwrap();
-        assert_eq!(back, pref);
+        for (pref, expected) in [
+            (OrtAccelerator::Auto, "\"auto\""),
+            (OrtAccelerator::CpuOnly, "\"cpu\""),
+            (OrtAccelerator::Cuda, "\"cuda\""),
+            (OrtAccelerator::DirectMl, "\"directml\""),
+            (OrtAccelerator::Rocm, "\"rocm\""),
+            (OrtAccelerator::CoreMl, "\"coreml\""),
+            (OrtAccelerator::WebGpu, "\"webgpu\""),
+        ] {
+            let json = serde_json::to_string(&pref).unwrap();
+            assert_eq!(json, expected, "serialize {:?}", pref);
+            let back: OrtAccelerator = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, pref, "deserialize {}", json);
+        }
+    }
+
+    #[test]
+    fn ort_serde_backward_compat() {
+        // Old snake_case forms from before the serde(rename) overrides
+        // must still deserialize for backward compatibility.
+        let old_cpu: OrtAccelerator = serde_json::from_str("\"cpu_only\"").unwrap();
+        assert_eq!(old_cpu, OrtAccelerator::CpuOnly);
+        let old_dml: OrtAccelerator = serde_json::from_str("\"direct_ml\"").unwrap();
+        assert_eq!(old_dml, OrtAccelerator::DirectMl);
     }
 
     #[test]
