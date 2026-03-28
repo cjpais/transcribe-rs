@@ -1,0 +1,193 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  VULKAN_VERSION: 1.4.341.1
+
+jobs:
+  test:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          # Invalidate cache when Vulkan version
+          prefix-key: "v1-vulkan-${{ env.VULKAN_VERSION }}-${{ runner.os }}"
+
+      - name: Setup Vulkan SDK (Linux)
+        if: runner.os == 'Linux'
+        uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          vulkan_version: ${{ env.VULKAN_VERSION }}
+          install_runtime: true
+
+      - name: Setup Vulkan SDK (Windows)
+        if: runner.os == 'Windows'
+        uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          vulkan_version: ${{ env.VULKAN_VERSION }}
+          install_runtime: true
+          install_swiftshader: true
+
+      - name: Configure Environment
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" == "macOS" ]; then
+            echo "WHISPER_USE_GPU=1" >> $GITHUB_ENV
+          elif [ "$RUNNER_OS" == "Linux" ]; then
+            sudo apt-get update
+            sudo apt-get install -y mesa-vulkan-drivers libgomp1 libvulkan-dev
+            LVP_ICD=$(find /usr/share/vulkan/icd.d/ -name "lvp_icd*.json" | head -n 1)
+            echo "VK_ICD_FILENAMES=$LVP_ICD" >> $GITHUB_ENV
+            echo "WHISPER_USE_GPU=0" >> $GITHUB_ENV
+          elif [ "$RUNNER_OS" == "Windows" ]; then
+            echo "VK_ICD_FILENAMES=C:\swiftshader\vk_swiftshader_icd.json" >> $GITHUB_ENV
+            echo "WHISPER_USE_GPU=0" >> $GITHUB_ENV
+          fi
+
+      - name: Run Tests (Default Features)
+        run: cargo test
+
+      - name: Cache Moonshine Model
+        id: cache-moonshine
+        uses: actions/cache@v5
+        with:
+          path: models/moonshine-base/
+          key: ${{ runner.os }}-moonshine-base-v1
+
+      - name: Download Moonshine
+        if: steps.cache-moonshine.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          mkdir -p models/moonshine-base
+          cd models/moonshine-base
+          curl -sLO https://huggingface.co/onnx-community/moonshine-base-ONNX/resolve/main/onnx/encoder_model.onnx
+          curl -sLO https://huggingface.co/onnx-community/moonshine-base-ONNX/resolve/main/onnx/decoder_model_merged.onnx
+          curl -sLO https://huggingface.co/onnx-community/moonshine-base-ONNX/resolve/main/tokenizer.json
+
+      - name: Run Tests (Moonshine)
+        run: cargo test --features onnx
+
+      - name: Cache Parakeet Model
+        id: cache-parakeet
+        uses: actions/cache@v5
+        with:
+          path: models/parakeet-tdt-0.6b-v3-int8/
+          key: ${{ runner.os }}-parakeet-v1
+
+      - name: Download Parakeet
+        if: steps.cache-parakeet.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          mkdir -p models
+          curl -sL https://blob.handy.computer/parakeet-v3-int8.tar.gz | tar -xz -C models/
+
+      - name: Run Tests (Parakeet)
+        run: cargo test --features onnx
+
+      - name: Cache SenseVoice Model
+        id: cache-sensevoice
+        uses: actions/cache@v5
+        with:
+          path: models/sense-voice-int8/
+          key: ${{ runner.os }}-sensevoice-v1
+
+      - name: Download SenseVoice
+        if: steps.cache-sensevoice.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          mkdir -p models
+          curl -sL https://blob.handy.computer/sense-voice-int8.tar.gz | tar -xz -C models/
+
+      - name: Run Tests (SenseVoice)
+        run: cargo test --features onnx
+
+      - name: Cache Silero VAD Model
+        id: cache-silero-vad
+        uses: actions/cache@v5
+        with:
+          path: models/silero_vad_v4.onnx
+          key: ${{ runner.os }}-silero-vad-v4
+
+      - name: Download Silero VAD
+        if: steps.cache-silero-vad.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          mkdir -p models
+          curl -sLo models/silero_vad_v4.onnx https://blob.handy.computer/silero_vad_v4.onnx
+
+      - name: Run Tests (VAD + Transcriber)
+        run: cargo test --features "onnx,vad-silero"
+
+      - name: Cache Whisper Model
+        id: cache-whisper
+        uses: actions/cache@v5
+        with:
+          path: models/whisper-tiny.bin
+          key: ${{ runner.os }}-whisper-tiny-v1
+
+      - name: Download Whisper
+        if: steps.cache-whisper.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          mkdir -p models
+          curl -sLo models/whisper-tiny.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin
+
+      - name: Run Tests (Whisper)
+        run: cargo test --features whisper-cpp
+
+      - name: Cache Whisperfile Resources
+        id: cache-whisperfile
+        uses: actions/cache@v5
+        with:
+          path: |
+            models/ggml-small.bin
+            models/whisperfile-*
+          key: ${{ runner.os }}-whisperfile-v1
+
+      - name: Download Whisperfile
+        if: steps.cache-whisperfile.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          mkdir -p models
+          curl -sLo models/ggml-small.bin https://blob.handy.computer/ggml-small.bin
+
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            curl -sLo models/whisperfile-0.9.3.exe https://github.com/mozilla-ai/llamafile/releases/download/0.9.3/whisperfile-0.9.3
+          else
+            curl -sLo models/whisperfile-0.9.3 https://github.com/mozilla-ai/llamafile/releases/download/0.9.3/whisperfile-0.9.3
+          fi
+
+      - name: Run Tests (Whisperfile)
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            export WHISPERFILE_BIN="models/whisperfile-0.9.3.exe"
+          else
+            chmod +x models/whisperfile-0.9.3 || true
+            export WHISPERFILE_BIN="models/whisperfile-0.9.3"
+          fi
+          export WHISPERFILE_MODEL="models/ggml-small.bin"
+
+          if [ -f "$WHISPERFILE_BIN" ]; then
+            cargo test --features whisperfile
+          else
+            echo "Skipping whisperfile tests due to missing binary at $WHISPERFILE_BIN"
+          fi
