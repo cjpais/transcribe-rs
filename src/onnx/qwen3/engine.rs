@@ -78,7 +78,7 @@ impl SpeechModel for Qwen3Model {
         CAPABILITIES
     }
 
-    fn transcribe(
+    fn transcribe_raw(
         &mut self,
         samples: &[f32],
         options: &TranscribeOptions,
