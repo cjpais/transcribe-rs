@@ -167,7 +167,7 @@ impl MoonshineModel {
         max_length: usize,
     ) -> Result<Vec<i64>, TranscribeError> {
         let audio_duration = samples.len() as f32 / SAMPLE_RATE as f32;
-        if audio_duration < 0.1 || audio_duration > 64.0 {
+        if !(0.1..=64.0).contains(&audio_duration) {
             return Err(TranscribeError::Inference(format!(
                 "Audio duration must be between 0.1s and 64s, got {:.2}s",
                 audio_duration
