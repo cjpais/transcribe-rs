@@ -118,6 +118,18 @@ required-features = ["whisperfile"]
 name = "openai"
 required-features = ["openai"]
 
+[[example]]
+name = "paraformer"
+required-features = ["onnx"]
+
+[[example]]
+name = "zipformer_ctc"
+required-features = ["onnx"]
+
+[[example]]
+name = "zipformer_transducer"
+required-features = ["onnx"]
+
 [dev-dependencies]
 once_cell = "1.21.3"
 
@@ -161,3 +173,15 @@ required-features = ["onnx", "vad-silero"]
 [[test]]
 name = "vad_silero"
 required-features = ["vad-silero"]
+
+[[test]]
+name = "paraformer"
+required-features = ["onnx"]
+
+[[test]]
+name = "zipformer_ctc"
+required-features = ["onnx"]
+
+[[test]]
+name = "zipformer_transducer"
+required-features = ["onnx"]
