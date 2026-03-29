@@ -252,8 +252,32 @@ impl PunctModel {
             ])
             .map_err(|e| TranscribeError::Inference(format!("inference: {e}")))?;
 
-        // Try i64 first (common for ONNX argmax output), fall back to i32
-        let punct_ids: Vec<usize> = if let Ok(output) = outputs[0].try_extract_array::<i64>() {
+        // Output is logits [batch=1, seq_len, num_classes] — argmax along last axis
+        let punct_ids: Vec<usize> = if let Ok(logits) = outputs[0].try_extract_array::<f32>() {
+            let shape = logits.shape();
+            if shape.len() == 3 {
+                // [1, seq_len, num_classes] → argmax per token
+                let num_classes = shape[2];
+                logits
+                    .as_slice()
+                    .unwrap()
+                    .chunks(num_classes)
+                    .skip(0) // batch dim handled by taking first batch only
+                    .take(seq_len)
+                    .map(|row| {
+                        row.iter()
+                            .enumerate()
+                            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+                            .map(|(idx, _)| idx)
+                            .unwrap_or(0)
+                    })
+                    .collect()
+            } else {
+                // Unexpected shape, return zeros
+                vec![0usize; seq_len]
+            }
+        } else if let Ok(output) = outputs[0].try_extract_array::<i64>() {
+            // Some models output pre-argmaxed int64
             output.iter().map(|&x| x as usize).collect()
         } else {
             let output = outputs[0]
