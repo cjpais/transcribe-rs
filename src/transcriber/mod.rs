@@ -61,9 +61,10 @@ use crate::{audio, SpeechModel, TranscribeError, TranscribeOptions, Transcriptio
 
 /// Transcribe a chunk with optional silence padding and timestamp adjustment.
 ///
-/// Prepends and appends `padding_secs` of silence, enforces `min_duration_secs`
-/// via zero-padding, calls `model.transcribe`, then adjusts segment timestamps
-/// to account for the padding and the chunk's position in the overall audio.
+/// Sets leading/trailing silence on [`TranscribeOptions`] and delegates padding
+/// and leading-silence timestamp correction to [`SpeechModel::transcribe`].
+/// Enforces `min_duration_secs` via zero-padding of the content, then offsets
+/// segment timestamps by `chunk_start_secs`.
 pub(crate) fn transcribe_padded(
     model: &mut dyn SpeechModel,
     samples: &[f32],
@@ -72,23 +73,33 @@ pub(crate) fn transcribe_padded(
     chunk_start_secs: f32,
     options: &TranscribeOptions,
 ) -> Result<TranscriptionResult, TranscribeError> {
-    let pad_samples = (padding_secs * SAMPLE_RATE) as usize;
-    let mut padded = Vec::with_capacity(pad_samples + samples.len() + pad_samples);
-    padded.resize(pad_samples, 0.0);
-    padded.extend_from_slice(samples);
-    padded.resize(padded.len() + pad_samples, 0.0);
+    let padding_ms = (padding_secs * 1000.0) as u32;
 
-    let min_samples = (min_duration_secs * SAMPLE_RATE) as usize;
-    if padded.len() < min_samples {
-        padded.resize(min_samples, 0.0);
+    // The trait will prepend + append padding. Ensure the total
+    // (padding + content + padding) meets the minimum duration.
+    let pad_total = 2 * padding_ms as usize * 16; // samples at 16 kHz
+    let min_total = (min_duration_secs * SAMPLE_RATE) as usize;
+    let min_content = min_total.saturating_sub(pad_total);
+
+    let mut content = samples.to_vec();
+    if content.len() < min_content {
+        content.resize(min_content, 0.0);
     }
 
-    let mut result = model.transcribe(&padded, options)?;
+    let mut opts = options.clone();
+    opts.leading_silence_ms = Some(padding_ms);
+    opts.trailing_silence_ms = Some(padding_ms);
 
-    if let Some(segments) = &mut result.segments {
-        for seg in segments.iter_mut() {
-            seg.start = (seg.start - padding_secs + chunk_start_secs).max(0.0);
-            seg.end = (seg.end - padding_secs + chunk_start_secs).max(0.0);
+    let mut result = model.transcribe(&content, &opts)?;
+
+    // The trait already subtracted leading silence from timestamps.
+    // Offset by this chunk's position in the overall audio.
+    if chunk_start_secs > 0.0 {
+        if let Some(segments) = &mut result.segments {
+            for seg in segments.iter_mut() {
+                seg.start += chunk_start_secs;
+                seg.end += chunk_start_secs;
+            }
         }
     }
 

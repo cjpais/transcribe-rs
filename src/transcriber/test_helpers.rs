@@ -20,7 +20,7 @@ impl SpeechModel for MockModel {
         }
     }
 
-    fn transcribe(
+    fn transcribe_raw(
         &mut self,
         samples: &[f32],
         _options: &TranscribeOptions,
@@ -64,7 +64,7 @@ impl SpeechModel for FailOnNthModel {
         }
     }
 
-    fn transcribe(
+    fn transcribe_raw(
         &mut self,
         _samples: &[f32],
         _options: &TranscribeOptions,

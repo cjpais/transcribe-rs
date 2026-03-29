@@ -145,6 +145,15 @@ pub struct TranscribeOptions {
     pub language: Option<String>,
     /// Whether to translate the output to English (only supported by some engines).
     pub translate: bool,
+    /// Leading silence padding in milliseconds prepended before audio.
+    /// Some models (e.g. Parakeet) can drop the beginning of audio due to
+    /// mel spectrogram windowing. Set to `Some(0)` to explicitly disable.
+    /// When `None`, each engine applies its own default (e.g. Parakeet uses 250 ms).
+    pub leading_silence_ms: Option<u32>,
+    /// Trailing silence padding in milliseconds appended after audio.
+    /// Set to `Some(0)` to explicitly disable.
+    /// When `None`, each engine applies its own default (typically 0 ms).
+    pub trailing_silence_ms: Option<u32>,
 }
 
 /// Unified interface for speech-to-text models.
@@ -152,16 +161,84 @@ pub struct TranscribeOptions {
 /// Each model implements this trait to provide a common transcription API.
 /// Model-specific parameters are exposed via a separate `transcribe_with()` method
 /// on the concrete type.
+///
+/// Engines implement [`transcribe_raw`](SpeechModel::transcribe_raw) with their
+/// inference logic. The default [`transcribe`](SpeechModel::transcribe) method
+/// handles silence padding and timestamp adjustment automatically.
 pub trait SpeechModel: Send {
     /// Report this model's capabilities.
     fn capabilities(&self) -> ModelCapabilities;
 
-    /// Transcribe audio samples (16 kHz, mono, f32 in [-1, 1]).
-    fn transcribe(
+    /// Default leading silence in milliseconds for this engine.
+    ///
+    /// Override to set a non-zero default. For example, Parakeet returns 250
+    /// because its mel spectrogram preprocessor attenuates the start of audio.
+    fn default_leading_silence_ms(&self) -> u32 {
+        0
+    }
+
+    /// Default trailing silence in milliseconds for this engine.
+    fn default_trailing_silence_ms(&self) -> u32 {
+        0
+    }
+
+    /// Raw transcription — engines implement this with their inference logic.
+    ///
+    /// Callers should prefer [`transcribe`](SpeechModel::transcribe) which
+    /// handles silence padding automatically. Use this method directly only
+    /// when managing padding yourself (e.g. chunked transcription).
+    fn transcribe_raw(
         &mut self,
         samples: &[f32],
         options: &TranscribeOptions,
     ) -> Result<TranscriptionResult, TranscribeError>;
+
+    /// Transcribe audio samples (16 kHz, mono, f32 in [-1, 1]).
+    ///
+    /// Prepends/appends silence padding based on [`TranscribeOptions`] (or
+    /// engine defaults), runs [`transcribe_raw`](SpeechModel::transcribe_raw),
+    /// then adjusts segment timestamps to account for the leading padding.
+    fn transcribe(
+        &mut self,
+        samples: &[f32],
+        options: &TranscribeOptions,
+    ) -> Result<TranscriptionResult, TranscribeError> {
+        let lead_ms = options
+            .leading_silence_ms
+            .unwrap_or_else(|| self.default_leading_silence_ms());
+        let trail_ms = options
+            .trailing_silence_ms
+            .unwrap_or_else(|| self.default_trailing_silence_ms());
+
+        // Fast path: no padding needed.
+        if lead_ms == 0 && trail_ms == 0 {
+            return self.transcribe_raw(samples, options);
+        }
+
+        let mut buf = if lead_ms > 0 {
+            audio::prepend_silence(samples, lead_ms)
+        } else {
+            samples.to_vec()
+        };
+        if trail_ms > 0 {
+            let trail_len = trail_ms as usize * 16 /* 16 samples per ms at 16 kHz */;
+            buf.resize(buf.len() + trail_len, 0.0);
+        }
+
+        let mut result = self.transcribe_raw(&buf, options)?;
+
+        if lead_ms > 0 {
+            let offset = lead_ms as f32 / 1000.0;
+            if let Some(segs) = &mut result.segments {
+                for seg in segs {
+                    seg.start = (seg.start - offset).max(0.0);
+                    seg.end = (seg.end - offset).max(0.0);
+                }
+            }
+        }
+
+        Ok(result)
+    }
 
     /// Transcribe a WAV file (16 kHz, 16-bit, mono).
     fn transcribe_file(

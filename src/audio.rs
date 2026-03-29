@@ -93,3 +93,26 @@ pub fn read_wav_samples(wav_path: &Path) -> Result<Vec<f32>, TranscribeError> {
 
     Ok(samples?)
 }
+
+/// Prepend silence to audio samples.
+///
+/// Returns a new buffer with `silence_ms` milliseconds of zeros
+/// followed by the original samples. Assumes 16 kHz sample rate.
+pub fn prepend_silence(samples: &[f32], silence_ms: u32) -> Vec<f32> {
+    let silence_len = silence_ms as usize * 16 /* 16 samples per ms at 16 kHz */;
+    let mut padded = vec![0.0f32; silence_len];
+    padded.extend_from_slice(samples);
+    padded
+}
+
+/// Append silence to audio samples.
+///
+/// Returns a new buffer with the original samples followed by
+/// `silence_ms` milliseconds of zeros. Assumes 16 kHz sample rate.
+pub fn append_silence(samples: &[f32], silence_ms: u32) -> Vec<f32> {
+    let silence_len = silence_ms as usize * 16 /* 16 samples per ms at 16 kHz */;
+    let mut padded = Vec::with_capacity(samples.len() + silence_len);
+    padded.extend_from_slice(samples);
+    padded.resize(padded.len() + silence_len, 0.0);
+    padded
+}

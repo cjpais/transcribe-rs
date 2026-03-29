@@ -488,7 +488,7 @@ impl SpeechModel for WhisperfileEngine {
         CAPABILITIES
     }
 
-    fn transcribe(
+    fn transcribe_raw(
         &mut self,
         samples: &[f32],
         options: &TranscribeOptions,

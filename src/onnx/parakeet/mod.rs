@@ -128,15 +128,36 @@ impl ParakeetModel {
         })
     }
 
+    /// Default leading silence in milliseconds.
+    const DEFAULT_LEADING_SILENCE_MS: u32 = 250;
+
     /// Transcribe with model-specific parameters.
+    ///
+    /// Applies leading/trailing silence padding (default 250 ms leading)
+    /// and adjusts timestamps, matching the behaviour of
+    /// [`SpeechModel::transcribe`].
     pub fn transcribe_with(
         &mut self,
         samples: &[f32],
         params: &ParakeetParams,
     ) -> Result<TranscriptionResult, TranscribeError> {
         let granularity = params.timestamp_granularity.clone().unwrap_or_default();
+        let lead_ms = Self::DEFAULT_LEADING_SILENCE_MS;
 
-        self.infer(samples, &granularity)
+        if lead_ms > 0 {
+            let padded = crate::audio::prepend_silence(samples, lead_ms);
+            let mut result = self.infer(&padded, &granularity)?;
+            let offset = lead_ms as f32 / 1000.0;
+            if let Some(segs) = &mut result.segments {
+                for seg in segs {
+                    seg.start = (seg.start - offset).max(0.0);
+                    seg.end = (seg.end - offset).max(0.0);
+                }
+            }
+            Ok(result)
+        } else {
+            self.infer(samples, &granularity)
+        }
     }
 
     fn infer(
@@ -428,7 +449,11 @@ impl SpeechModel for ParakeetModel {
         CAPABILITIES
     }
 
-    fn transcribe(
+    fn default_leading_silence_ms(&self) -> u32 {
+        Self::DEFAULT_LEADING_SILENCE_MS
+    }
+
+    fn transcribe_raw(
         &mut self,
         samples: &[f32],
         _options: &TranscribeOptions,
