@@ -77,7 +77,7 @@ pub(crate) fn transcribe_padded(
 
     // The trait will prepend + append padding. Ensure the total
     // (padding + content + padding) meets the minimum duration.
-    let pad_total = 2 * padding_ms as usize * 16; // samples at 16 kHz
+    let pad_total = 2 * padding_ms as usize * audio::SAMPLES_PER_MS;
     let min_total = (min_duration_secs * SAMPLE_RATE) as usize;
     let min_content = min_total.saturating_sub(pad_total);
 
@@ -86,6 +86,8 @@ pub(crate) fn transcribe_padded(
         content.resize(min_content, 0.0);
     }
 
+    // Override any user-specified padding — chunked transcription manages
+    // its own padding to ensure consistent overlap between chunks.
     let mut opts = options.clone();
     opts.leading_silence_ms = Some(padding_ms);
     opts.trailing_silence_ms = Some(padding_ms);
@@ -95,12 +97,7 @@ pub(crate) fn transcribe_padded(
     // The trait already subtracted leading silence from timestamps.
     // Offset by this chunk's position in the overall audio.
     if chunk_start_secs > 0.0 {
-        if let Some(segments) = &mut result.segments {
-            for seg in segments.iter_mut() {
-                seg.start += chunk_start_secs;
-                seg.end += chunk_start_secs;
-            }
-        }
+        result.offset_timestamps(chunk_start_secs);
     }
 
     Ok(result)

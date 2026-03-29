@@ -7,6 +7,9 @@ use std::path::Path;
 
 use crate::TranscribeError;
 
+/// Number of samples per millisecond at 16 kHz.
+pub const SAMPLES_PER_MS: usize = 16;
+
 /// Read WAV file samples and convert them to the required format.
 ///
 /// This function reads a WAV file and converts it to the format expected by
@@ -99,20 +102,8 @@ pub fn read_wav_samples(wav_path: &Path) -> Result<Vec<f32>, TranscribeError> {
 /// Returns a new buffer with `silence_ms` milliseconds of zeros
 /// followed by the original samples. Assumes 16 kHz sample rate.
 pub fn prepend_silence(samples: &[f32], silence_ms: u32) -> Vec<f32> {
-    let silence_len = silence_ms as usize * 16 /* 16 samples per ms at 16 kHz */;
+    let silence_len = silence_ms as usize * SAMPLES_PER_MS;
     let mut padded = vec![0.0f32; silence_len];
     padded.extend_from_slice(samples);
-    padded
-}
-
-/// Append silence to audio samples.
-///
-/// Returns a new buffer with the original samples followed by
-/// `silence_ms` milliseconds of zeros. Assumes 16 kHz sample rate.
-pub fn append_silence(samples: &[f32], silence_ms: u32) -> Vec<f32> {
-    let silence_len = silence_ms as usize * 16 /* 16 samples per ms at 16 kHz */;
-    let mut padded = Vec::with_capacity(samples.len() + silence_len);
-    padded.extend_from_slice(samples);
-    padded.resize(padded.len() + silence_len, 0.0);
     padded
 }

@@ -221,20 +221,14 @@ pub trait SpeechModel: Send {
             samples.to_vec()
         };
         if trail_ms > 0 {
-            let trail_len = trail_ms as usize * 16 /* 16 samples per ms at 16 kHz */;
+            let trail_len = trail_ms as usize * audio::SAMPLES_PER_MS;
             buf.resize(buf.len() + trail_len, 0.0);
         }
 
         let mut result = self.transcribe_raw(&buf, options)?;
 
         if lead_ms > 0 {
-            let offset = lead_ms as f32 / 1000.0;
-            if let Some(segs) = &mut result.segments {
-                for seg in segs {
-                    seg.start = (seg.start - offset).max(0.0);
-                    seg.end = (seg.end - offset).max(0.0);
-                }
-            }
+            result.offset_timestamps(-(lead_ms as f32 / 1000.0));
         }
 
         Ok(result)
@@ -261,6 +255,21 @@ pub struct TranscriptionResult {
     pub text: String,
     /// Individual segments with timing information
     pub segments: Option<Vec<TranscriptionSegment>>,
+}
+
+impl TranscriptionResult {
+    /// Shift all segment timestamps by `offset_secs`, clamping to zero.
+    ///
+    /// Use a negative offset to compensate for leading silence padding,
+    /// or a positive offset to place a chunk within a longer audio stream.
+    pub fn offset_timestamps(&mut self, offset_secs: f32) {
+        if let Some(segs) = &mut self.segments {
+            for seg in segs {
+                seg.start = (seg.start + offset_secs).max(0.0);
+                seg.end = (seg.end + offset_secs).max(0.0);
+            }
+        }
+    }
 }
 
 /// A single transcribed segment with timing information.
