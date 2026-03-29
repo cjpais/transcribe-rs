@@ -36,14 +36,14 @@ impl From<serde_json::Error> for TranscribeError {
     }
 }
 
-#[cfg(any(feature = "onnx", feature = "vad-silero"))]
+#[cfg(any(feature = "onnx", feature = "vad-silero", feature = "punct"))]
 impl From<ort::Error> for TranscribeError {
     fn from(e: ort::Error) -> Self {
         TranscribeError::Inference(e.to_string())
     }
 }
 
-#[cfg(any(feature = "audio-features", feature = "vad-silero"))]
+#[cfg(any(feature = "audio-features", feature = "vad-silero", feature = "punct"))]
 impl From<ndarray::ShapeError> for TranscribeError {
     fn from(e: ndarray::ShapeError) -> Self {
         TranscribeError::Inference(e.to_string())

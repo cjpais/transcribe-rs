@@ -33,6 +33,9 @@ openai = ["dep:async-openai", "dep:tokio", "dep:async-trait"]
 # Silero neural VAD (requires silero_vad_v4.onnx model file)
 vad-silero = ["dep:ort", "dep:ndarray"]
 
+# Neural punctuation restoration (CT-Transformer)
+punct = ["dep:ort", "dep:ndarray"]
+
 # --- ORT Accelerators ---
 # Note: ort-cuda pulls in the CUDA execution provider, which adds ~800 MB+
 # to the ORT binary and requires a CUDA toolkit / cuDNN installation at runtime.
@@ -44,7 +47,7 @@ ort-webgpu   = ["onnx", "ort/webgpu"]
 ort-accel    = ["ort-cuda", "ort-directml", "ort-rocm", "ort-coreml", "ort-webgpu"]
 
 # Convenience
-all = ["onnx", "whisper-cpp", "whisperfile", "openai"]
+all = ["onnx", "whisper-cpp", "whisperfile", "openai", "punct"]
 
 [dependencies]
 # Always required
