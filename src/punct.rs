@@ -235,10 +235,9 @@ impl PunctModel {
     /// Returns a Vec of punctuation class IDs, one per input token.
     fn run_inference(&mut self, token_ids: &[i32]) -> Result<Vec<usize>, TranscribeError> {
         let seq_len = token_ids.len();
-        let input_array =
-            Array2::from_shape_vec((1, seq_len), token_ids.iter().map(|&x| x as i64).collect())
-                .map_err(|e| TranscribeError::Inference(format!("shape error: {e}")))?;
-        let length_array = Array1::from_vec(vec![seq_len as i64]);
+        let input_array = Array2::from_shape_vec((1, seq_len), token_ids.to_vec())
+            .map_err(|e| TranscribeError::Inference(format!("shape error: {e}")))?;
+        let length_array = Array1::from_vec(vec![seq_len as i32]);
 
         let input_tensor = TensorRef::from_array_view(input_array.view())
             .map_err(|e| TranscribeError::Inference(format!("input tensor: {e}")))?;
@@ -253,10 +252,15 @@ impl PunctModel {
             ])
             .map_err(|e| TranscribeError::Inference(format!("inference: {e}")))?;
 
-        let output = outputs[0]
-            .try_extract_array::<i64>()
-            .map_err(|e| TranscribeError::Inference(format!("extract output: {e}")))?;
-        let punct_ids: Vec<usize> = output.iter().map(|&x| x as usize).collect();
+        // Try i64 first (common for ONNX argmax output), fall back to i32
+        let punct_ids: Vec<usize> = if let Ok(output) = outputs[0].try_extract_array::<i64>() {
+            output.iter().map(|&x| x as usize).collect()
+        } else {
+            let output = outputs[0]
+                .try_extract_array::<i32>()
+                .map_err(|e| TranscribeError::Inference(format!("extract output: {e}")))?;
+            output.iter().map(|&x| x as usize).collect()
+        };
         Ok(punct_ids)
     }
 
