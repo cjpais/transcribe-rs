@@ -74,8 +74,7 @@ pub fn compute_kaldi_fbank(samples: &[f32], config: &KaldiFbankConfig) -> Array2
     let window: Vec<f32> = (0..window_size)
         .map(|i| {
             let hamming = 0.54
-                - 0.46
-                    * (2.0 * std::f32::consts::PI * i as f32 / (window_size as f32 - 1.0)).cos();
+                - 0.46 * (2.0 * std::f32::consts::PI * i as f32 / (window_size as f32 - 1.0)).cos();
             hamming.powf(0.85)
         })
         .collect();
@@ -94,10 +93,10 @@ pub fn compute_kaldi_fbank(samples: &[f32], config: &KaldiFbankConfig) -> Array2
         let start = center as isize - (window_size as isize / 2);
 
         let mut frame = vec![0.0f32; window_size];
-        for i in 0..window_size {
+        for (i, sample) in frame.iter_mut().enumerate() {
             let idx = start + i as isize;
             if idx >= 0 && (idx as usize) < samples.len() {
-                frame[i] = samples[idx as usize];
+                *sample = samples[idx as usize];
             }
         }
 
@@ -179,17 +178,13 @@ fn mel_filterbank(config: &KaldiFbankConfig) -> Vec<Vec<f32>> {
         let center = fft_bins[i + 1];
         let right = fft_bins[i + 2];
         if center > left {
-            for j in left..center {
-                if j < half_fft {
-                    filter[j] = (j - left) as f32 / (center - left) as f32;
-                }
+            for (idx, val) in filter[left..center.min(half_fft)].iter_mut().enumerate() {
+                *val = idx as f32 / (center - left) as f32;
             }
         }
         if right > center {
-            for j in center..right {
-                if j < half_fft {
-                    filter[j] = (right - j) as f32 / (right - center) as f32;
-                }
+            for (idx, val) in filter[center..right.min(half_fft)].iter_mut().enumerate() {
+                *val = (right - center - idx) as f32 / (right - center) as f32;
             }
         }
     }

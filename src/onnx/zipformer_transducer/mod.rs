@@ -135,28 +135,50 @@ impl ZipformerTransducerModel {
             .map(|o| o.name().to_string())
             .collect();
 
-        log::debug!("Encoder inputs: {:?}, outputs: {:?}", enc_input_names, enc_output_names);
-        log::debug!("Decoder inputs: {:?}, outputs: {:?}", dec_input_names, dec_output_names);
-        log::debug!("Joiner inputs: {:?}, outputs: {:?}", join_input_names, join_output_names);
+        log::debug!(
+            "Encoder inputs: {:?}, outputs: {:?}",
+            enc_input_names,
+            enc_output_names
+        );
+        log::debug!(
+            "Decoder inputs: {:?}, outputs: {:?}",
+            dec_input_names,
+            dec_output_names
+        );
+        log::debug!(
+            "Joiner inputs: {:?}, outputs: {:?}",
+            join_input_names,
+            join_output_names
+        );
 
         // Detect encoder I/O names
         let enc_x_name = Self::find_name(&enc_input_names, &["x", "features", "input"])
-            .unwrap_or_else(|| enc_input_names.first().cloned().unwrap_or_else(|| "x".to_string()));
+            .unwrap_or_else(|| {
+                enc_input_names
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| "x".to_string())
+            });
 
         let enc_x_lens_name =
             Self::find_name(&enc_input_names, &["x_lens", "x_length", "input_lengths"])
                 .unwrap_or_else(|| {
-                    enc_input_names.get(1).cloned().unwrap_or_else(|| "x_lens".to_string())
+                    enc_input_names
+                        .get(1)
+                        .cloned()
+                        .unwrap_or_else(|| "x_lens".to_string())
                 });
 
-        let enc_out_name =
-            Self::find_name(&enc_output_names, &["encoder_out", "output", "encoder_output"])
-                .unwrap_or_else(|| {
-                    enc_output_names
-                        .first()
-                        .cloned()
-                        .unwrap_or_else(|| "encoder_out".to_string())
-                });
+        let enc_out_name = Self::find_name(
+            &enc_output_names,
+            &["encoder_out", "output", "encoder_output"],
+        )
+        .unwrap_or_else(|| {
+            enc_output_names
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "encoder_out".to_string())
+        });
 
         let enc_out_lens_name = Self::find_name(
             &enc_output_names,
@@ -171,16 +193,23 @@ impl ZipformerTransducerModel {
 
         // Detect decoder I/O names
         let dec_y_name = Self::find_name(&dec_input_names, &["y", "input", "decoder_input"])
-            .unwrap_or_else(|| dec_input_names.first().cloned().unwrap_or_else(|| "y".to_string()));
+            .unwrap_or_else(|| {
+                dec_input_names
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| "y".to_string())
+            });
 
-        let dec_out_name =
-            Self::find_name(&dec_output_names, &["decoder_out", "output", "decoder_output"])
-                .unwrap_or_else(|| {
-                    dec_output_names
-                        .first()
-                        .cloned()
-                        .unwrap_or_else(|| "decoder_out".to_string())
-                });
+        let dec_out_name = Self::find_name(
+            &dec_output_names,
+            &["decoder_out", "output", "decoder_output"],
+        )
+        .unwrap_or_else(|| {
+            dec_output_names
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "decoder_out".to_string())
+        });
 
         // Detect joiner I/O names
         let join_enc_name = Self::find_name(
@@ -354,11 +383,7 @@ impl ZipformerTransducerModel {
             });
         }
 
-        log::debug!(
-            "Kaldi fbank: [{}, {}]",
-            features.nrows(),
-            features.ncols()
-        );
+        log::debug!("Kaldi fbank: [{}, {}]", features.nrows(), features.ncols());
 
         // 2. RNN-T greedy search
         let token_ids = self.greedy_search(&features)?;
@@ -378,9 +403,10 @@ impl ZipformerTransducerModel {
         features: &Array2<f32>,
     ) -> Result<(Array3<f32>, i64), TranscribeError> {
         let num_frames = features.nrows();
-        let feat_3d = features
-            .to_owned()
-            .into_shape_with_order((1, num_frames, features.ncols()))?;
+        let feat_3d =
+            features
+                .to_owned()
+                .into_shape_with_order((1, num_frames, features.ncols()))?;
         let lens = ndarray::arr1(&[num_frames as i64]).into_dyn();
 
         let feat_dyn = feat_3d.into_dyn();
@@ -416,8 +442,7 @@ impl ZipformerTransducerModel {
 
     /// Run decoder: y [1, context_size] (i64) -> decoder_out [1, D]
     fn run_decoder(&mut self, context: &[i64]) -> Result<Array2<f32>, TranscribeError> {
-        let y =
-            ndarray::Array2::from_shape_vec((1, self.context_size), context.to_vec())?;
+        let y = ndarray::Array2::from_shape_vec((1, self.context_size), context.to_vec())?;
         let y_dyn = y.into_dyn();
         let t_y = TensorRef::from_array_view(y_dyn.view())?;
 

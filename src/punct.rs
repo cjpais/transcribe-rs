@@ -235,11 +235,9 @@ impl PunctModel {
     /// Returns a Vec of punctuation class IDs, one per input token.
     fn run_inference(&mut self, token_ids: &[i32]) -> Result<Vec<usize>, TranscribeError> {
         let seq_len = token_ids.len();
-        let input_array = Array2::from_shape_vec(
-            (1, seq_len),
-            token_ids.iter().map(|&x| x as i64).collect(),
-        )
-        .map_err(|e| TranscribeError::Inference(format!("shape error: {e}")))?;
+        let input_array =
+            Array2::from_shape_vec((1, seq_len), token_ids.iter().map(|&x| x as i64).collect())
+                .map_err(|e| TranscribeError::Inference(format!("shape error: {e}")))?;
         let length_array = Array1::from_vec(vec![seq_len as i64]);
 
         let input_tensor = TensorRef::from_array_view(input_array.view())
@@ -366,10 +364,7 @@ impl PunctModel {
 fn choose_punct_char(pt: PunctType, current_word: &str, result_so_far: &str) -> Option<char> {
     // If the current word is an English/ASCII word, use ASCII punctuation.
     // If the preceding content ends in a CJK character, use full-width.
-    let last_meaningful = result_so_far
-        .chars()
-        .rev()
-        .find(|c| !c.is_whitespace());
+    let last_meaningful = result_so_far.chars().rev().find(|c| !c.is_whitespace());
 
     let use_ascii = is_english_token(current_word)
         || last_meaningful

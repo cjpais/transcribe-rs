@@ -17,9 +17,8 @@ fn test_zipformer_transducer_transcribe() {
         return;
     }
 
-    let mut model =
-        ZipformerTransducerModel::load(&model_dir, &Quantization::Int8)
-            .expect("Failed to load model");
+    let mut model = ZipformerTransducerModel::load(&model_dir, &Quantization::Int8)
+        .expect("Failed to load model");
 
     let result = model
         .transcribe_file(&wav_path, &transcribe_rs::TranscribeOptions::default())

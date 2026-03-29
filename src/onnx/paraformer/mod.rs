@@ -123,9 +123,7 @@ impl ParaformerSymbolTable {
                 let curr_is_ascii_word = is_ascii_word_piece(clean);
                 let prev_is_ascii_word = prev_char.map(is_ascii_word_char).unwrap_or(false);
                 let prev_is_cjk = prev_char.map(is_cjk).unwrap_or(false);
-                if curr_is_ascii_word
-                    && (prev_is_ascii_word || prev_is_cjk)
-                    && !text.ends_with(' ')
+                if curr_is_ascii_word && (prev_is_ascii_word || prev_is_cjk) && !text.ends_with(' ')
                 {
                     text.push(' ');
                 }
@@ -410,7 +408,11 @@ impl ParaformerModel {
         );
 
         // Detect I/O names from session
-        let inputs: Vec<String> = session.inputs().iter().map(|i| i.name().to_string()).collect();
+        let inputs: Vec<String> = session
+            .inputs()
+            .iter()
+            .map(|i| i.name().to_string())
+            .collect();
         let outputs: Vec<String> = session
             .outputs()
             .iter()
@@ -421,7 +423,12 @@ impl ParaformerModel {
             .iter()
             .find(|n| n.contains("speech"))
             .cloned()
-            .unwrap_or_else(|| inputs.first().cloned().unwrap_or_else(|| "speech".to_string()));
+            .unwrap_or_else(|| {
+                inputs
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| "speech".to_string())
+            });
 
         let speech_lengths_input_name = inputs
             .iter()
@@ -438,12 +445,14 @@ impl ParaformerModel {
             .iter()
             .find(|n| n.contains("logits"))
             .cloned()
-            .unwrap_or_else(|| outputs.first().cloned().unwrap_or_else(|| "logits".to_string()));
+            .unwrap_or_else(|| {
+                outputs
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| "logits".to_string())
+            });
 
-        let token_num_output_name = outputs
-            .iter()
-            .find(|n| n.contains("token_num"))
-            .cloned();
+        let token_num_output_name = outputs.iter().find(|n| n.contains("token_num")).cloned();
 
         log::debug!(
             "I/O names: speech={}, lengths={}, logits={}, token_num={:?}",
@@ -554,16 +563,14 @@ impl ParaformerModel {
     }
 
     /// Run ONNX forward pass. Returns logits [1, T, vocab_size].
-    fn forward(
-        &mut self,
-        features: &Array2<f32>,
-    ) -> Result<ndarray::Array3<f32>, TranscribeError> {
+    fn forward(&mut self, features: &Array2<f32>) -> Result<ndarray::Array3<f32>, TranscribeError> {
         let num_frames = features.nrows();
 
         // Shape: [1, T, D]
-        let feat_3d = features
-            .to_owned()
-            .into_shape_with_order((1, num_frames, features.ncols()))?;
+        let feat_3d =
+            features
+                .to_owned()
+                .into_shape_with_order((1, num_frames, features.ncols()))?;
         let speech_lengths = ndarray::arr1(&[num_frames as i32]);
 
         let feat_dyn = feat_3d.into_dyn();

@@ -159,7 +159,10 @@ impl ZipformerCtcModel {
     /// Priority:
     /// 1. `session::resolve_model_path(dir, "model", quantization)` — standard naming
     /// 2. Scan directory for `*.int8.onnx` (when Int8 requested) or `*.onnx`
-    fn find_model_file(model_dir: &Path, quantization: &Quantization) -> Result<PathBuf, TranscribeError> {
+    fn find_model_file(
+        model_dir: &Path,
+        quantization: &Quantization,
+    ) -> Result<PathBuf, TranscribeError> {
         // Try standard path first
         let standard_path = session::resolve_model_path(model_dir, "model", quantization);
         if standard_path.exists() {
@@ -182,10 +185,7 @@ impl ZipformerCtcModel {
         for entry in read_dir.flatten() {
             let path = entry.path();
             if path.extension().and_then(|e| e.to_str()) == Some("onnx") {
-                let name = path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("");
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
                 if name.contains("int8") || name.contains("int4") {
                     int8_candidates.push(path);
                 } else {
@@ -211,9 +211,7 @@ impl ZipformerCtcModel {
         }
 
         // Last resort: return the int8 candidate even if fp32 preferred
-        Err(TranscribeError::ModelNotFound(
-            model_dir.join("model.onnx"),
-        ))
+        Err(TranscribeError::ModelNotFound(model_dir.join("model.onnx")))
     }
 
     /// Transcribe with model-specific parameters.
@@ -236,11 +234,7 @@ impl ZipformerCtcModel {
             });
         }
 
-        log::debug!(
-            "Kaldi fbank: [{}, {}]",
-            features.nrows(),
-            features.ncols()
-        );
+        log::debug!("Kaldi fbank: [{}, {}]", features.nrows(), features.ncols());
 
         // 2. Run ONNX forward pass → log_probs [1, T', vocab]
         let (log_probs, output_len) = self.forward(&features)?;
@@ -269,13 +263,17 @@ impl ZipformerCtcModel {
     ///
     /// Returns `(log_probs [1, T, vocab], output_len)` where `output_len` is
     /// the valid frame count for batch element 0.
-    fn forward(&mut self, features: &Array2<f32>) -> Result<(ndarray::Array3<f32>, i64), TranscribeError> {
+    fn forward(
+        &mut self,
+        features: &Array2<f32>,
+    ) -> Result<(ndarray::Array3<f32>, i64), TranscribeError> {
         let num_frames = features.nrows() as i64;
 
         // Shape: [1, T, 80]
-        let feat_3d = features
-            .to_owned()
-            .into_shape_with_order((1, features.nrows(), features.ncols()))?;
+        let feat_3d =
+            features
+                .to_owned()
+                .into_shape_with_order((1, features.nrows(), features.ncols()))?;
         let x_lens = ndarray::arr1(&[num_frames]);
 
         let feat_dyn = feat_3d.into_dyn();
@@ -293,9 +291,7 @@ impl ZipformerCtcModel {
 
         // Extract log_probs — always the first output, shape [1, T', vocab]
         let log_probs = outputs[0].try_extract_array::<f32>()?;
-        let log_probs = log_probs
-            .to_owned()
-            .into_dimensionality::<ndarray::Ix3>()?;
+        let log_probs = log_probs.to_owned().into_dimensionality::<ndarray::Ix3>()?;
 
         // Determine output length: use the length output if available, else T'
         let output_len = if let Some(len_idx) = self.log_probs_len_output_idx {
