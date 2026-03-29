@@ -166,7 +166,7 @@ impl SpeechModel for GigaAMModel {
         CAPABILITIES
     }
 
-    fn transcribe(
+    fn transcribe_raw(
         &mut self,
         samples: &[f32],
         _options: &TranscribeOptions,

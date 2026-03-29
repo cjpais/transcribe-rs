@@ -794,7 +794,7 @@ impl SpeechModel for StreamingModel {
         STREAMING_CAPABILITIES
     }
 
-    fn transcribe(
+    fn transcribe_raw(
         &mut self,
         samples: &[f32],
         _options: &TranscribeOptions,

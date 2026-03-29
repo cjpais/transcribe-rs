@@ -271,7 +271,7 @@ impl SpeechModel for CanaryModel {
         }
     }
 
-    fn transcribe(
+    fn transcribe_raw(
         &mut self,
         samples: &[f32],
         options: &TranscribeOptions,
