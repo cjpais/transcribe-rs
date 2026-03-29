@@ -103,7 +103,7 @@ fn extract_decoder_mems_shape(decoder: &Session) -> Result<(usize, usize), Trans
 
     match mems_input.dtype() {
         ValueType::Tensor { shape, .. } => {
-            let dims: &[i64] = &shape;
+            let dims: &[i64] = shape;
             if dims.len() != 4 {
                 return Err(TranscribeError::Inference(format!(
                     "Expected 4D decoder_mems, got {}D",

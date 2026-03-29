@@ -7,8 +7,9 @@ pub use streaming::{MoonshineStreamingParams, StreamingConfig, StreamingModel, S
 pub const SAMPLE_RATE: u32 = 16000;
 
 /// Moonshine model variant.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum MoonshineVariant {
+    #[default]
     Tiny,
     TinyAr,
     TinyZh,
@@ -61,11 +62,5 @@ impl MoonshineVariant {
             | MoonshineVariant::TinyKo
             | MoonshineVariant::TinyVi => 13,
         }
-    }
-}
-
-impl Default for MoonshineVariant {
-    fn default() -> Self {
-        MoonshineVariant::Tiny
     }
 }
