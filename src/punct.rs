@@ -149,7 +149,7 @@ impl PunctModel {
         let input_name = session.inputs()[0].name().to_string();
         let length_name = session.inputs()[1].name().to_string();
 
-        log::info!(
+        log::debug!(
             "Punct model input names: '{}' and '{}'",
             input_name,
             length_name
@@ -172,7 +172,7 @@ impl PunctModel {
             token2id.insert(token.clone(), id as i32);
         }
         let unk_id = *token2id.get("<unk>").unwrap_or(&0);
-        log::info!("Loaded {} tokens, unk_id={}", tokens.len(), unk_id);
+        log::debug!("Loaded {} tokens, unk_id={}", tokens.len(), unk_id);
         Ok((token2id, unk_id))
     }
 

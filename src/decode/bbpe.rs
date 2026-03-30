@@ -33,10 +33,10 @@ impl BbpeSymbolTable {
     pub fn load_autodetect(path: &Path) -> Result<Self, std::io::Error> {
         let encoding = if let Some(dir) = path.parent() {
             if dir.join("bbpe.model").exists() {
-                log::info!("Detected BBPE encoding (bbpe.model found)");
+                log::debug!("Detected BBPE encoding (bbpe.model found)");
                 TokenEncoding::Bbpe
             } else {
-                log::info!("Detected standard BPE encoding (no bbpe.model)");
+                log::debug!("Detected standard BPE encoding (no bbpe.model)");
                 TokenEncoding::Bpe
             }
         } else {

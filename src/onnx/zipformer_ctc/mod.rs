@@ -200,13 +200,13 @@ impl ZipformerCtcModel {
 
         if prefer_int8 {
             if let Some(p) = int8_candidates.into_iter().next() {
-                log::info!("Found int8 model by directory scan: {:?}", p);
+                log::debug!("Found int8 model by directory scan: {:?}", p);
                 return Ok(p);
             }
         }
 
         if let Some(p) = fp32_candidates.into_iter().next() {
-            log::info!("Found model by directory scan: {:?}", p);
+            log::debug!("Found model by directory scan: {:?}", p);
             return Ok(p);
         }
 

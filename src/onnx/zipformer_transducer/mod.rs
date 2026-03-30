@@ -331,7 +331,7 @@ impl ZipformerTransducerModel {
 
             // 3. Prefer suffixed match
             if let Some(p) = suffixed_candidates.into_iter().next() {
-                log::info!(
+                log::debug!(
                     "Found {} model by directory scan: {:?}",
                     component,
                     p.file_name().unwrap_or_default()
@@ -341,7 +341,7 @@ impl ZipformerTransducerModel {
 
             // 4. Fall back to any .onnx match
             if let Some(p) = plain_candidates.into_iter().next() {
-                log::info!(
+                log::debug!(
                     "Found {} model by directory scan: {:?}",
                     component,
                     p.file_name().unwrap_or_default()
