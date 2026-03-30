@@ -10,7 +10,9 @@ use crate::TranscribeError;
 
 use super::config::Qwen3AsrConfig;
 use super::mel::{self, log_mel_spectrogram};
-use super::prompt::{build_prompt_ids, get_audio_pad_range, get_feat_extract_output_lengths};
+use super::prompt::{
+    build_prompt_ids_with_language, get_audio_pad_range, get_feat_extract_output_lengths,
+};
 use super::tokenizer::Qwen3Tokenizer;
 
 pub struct Qwen3AsrModel {
@@ -41,6 +43,7 @@ impl Qwen3AsrModel {
                 && st.audio_start_token_id >= 0
                 && st.audio_end_token_id >= 0
                 && st.audio_pad_token_id >= 0
+                && st.asr_text_token_id >= 0
                 && !st.eos_token_ids.is_empty()
                 && st.eos_token_ids.iter().all(|&id| id >= 0);
             if !valid {
@@ -151,11 +154,16 @@ impl Qwen3AsrModel {
         &mut self,
         audio_features: &Array3<f32>,
         max_tokens: usize,
+        language_token_ids: Option<&[i64]>,
     ) -> Result<String, TranscribeError> {
         // Cap to prevent unbounded KV cache growth from unchecked callers.
         let max_tokens = max_tokens.min(4096);
         let audio_token_count = audio_features.shape()[1];
-        let prompt_ids = build_prompt_ids(&self.config.special_tokens, audio_token_count);
+        let prompt_ids = build_prompt_ids_with_language(
+            &self.config.special_tokens,
+            audio_token_count,
+            language_token_ids,
+        );
         let seq_len = prompt_ids.len();
 
         let (audio_start, _) =
@@ -279,12 +287,12 @@ impl Qwen3AsrModel {
             }
         }
 
-        if !self
+        let eos_reached = self
             .config
             .special_tokens
             .eos_token_ids
-            .contains(&current_token)
-        {
+            .contains(&current_token);
+        if !eos_reached {
             log::warn!(
                 "Qwen3-ASR: max_tokens ({}) reached without EOS token",
                 max_tokens
@@ -292,11 +300,14 @@ impl Qwen3AsrModel {
         }
 
         // The model should produce `language <Name> <asr_text> <transcription>`.
-        // If the <asr_text> separator token is absent, the decoder failed to produce
-        // a valid transcription (e.g. degenerate "ology" output from int4 quantization
-        // noise on non-speech audio). Return empty string rather than garbage.
+        // If the <asr_text> separator token is absent AND the model completed
+        // normally (EOS seen), the decoder failed to produce a valid transcription
+        // (e.g. degenerate "ology" output from int4 quantization noise on
+        // non-speech audio). Return empty string rather than garbage.
+        // When max_tokens truncated the output, the <asr_text> token may simply
+        // not have been reached yet — this is not degenerate, just truncated.
         let asr_text_id = self.config.special_tokens.asr_text_token_id;
-        if !output_tokens.contains(&asr_text_id) {
+        if eos_reached && !output_tokens.contains(&asr_text_id) {
             let preview: Vec<_> = output_tokens.iter().take(20).collect();
             log::warn!(
                 "Qwen3-ASR: no <asr_text> token in output ({} tokens, first 20: {:?}); \
@@ -318,6 +329,7 @@ impl Qwen3AsrModel {
         &mut self,
         samples: &[f32],
         max_tokens: usize,
+        language_token_ids: Option<&[i64]>,
     ) -> Result<String, TranscribeError> {
         // Qwen3-ASR is designed for utterance-level audio (mel chunk_length = 30 s).
         const MAX_SAMPLES: usize = 60 * 16_000;
@@ -354,7 +366,15 @@ impl Qwen3AsrModel {
             )));
         }
 
-        self.greedy_decode(&audio_features, max_tokens)
+        self.greedy_decode(&audio_features, max_tokens, language_token_ids)
+    }
+
+    /// Encode a language name to token IDs using the tokenizer.
+    ///
+    /// Returns the token IDs for the language name (e.g. "English" → \[22574\]).
+    /// The caller should cache the result for reuse across transcriptions.
+    pub fn encode_language(&self, language: &str) -> Vec<i64> {
+        self.tokenizer.encode(language)
     }
 }
 
