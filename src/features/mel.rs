@@ -7,6 +7,8 @@ use std::f32::consts::PI;
 pub enum WindowType {
     Hamming,
     Hann,
+    /// Kaldi "povey" window: Hann window raised to the power of 0.85.
+    Povey,
 }
 
 /// Configuration for mel spectrogram / FBANK feature extraction.
@@ -21,6 +23,8 @@ pub struct MelConfig {
     pub f_max: Option<f32>,
     pub pre_emphasis: Option<f32>,
     pub snip_edges: bool,
+    /// If true, subtract the mean of each frame before pre-emphasis/FFT.
+    pub remove_dc_offset: bool,
     /// If true, input samples are assumed normalized [-1,1] and used as-is.
     /// If false, samples are scaled to [-32768,32767] before processing (SenseVoice default).
     pub normalize_samples: bool,
@@ -38,6 +42,7 @@ impl Default for MelConfig {
             f_max: None,
             pre_emphasis: Some(0.97),
             snip_edges: true,
+            remove_dc_offset: false,
             normalize_samples: true,
         }
     }
@@ -103,6 +108,14 @@ fn compute_fbank(samples: &[f32], config: &MelConfig, sr: f32, f_max: f32) -> Ar
         let mut frame = vec![0.0f32; frame_length];
         let copy_len = frame_length.min(samples.len().saturating_sub(start));
         frame[..copy_len].copy_from_slice(&samples[start..start + copy_len]);
+
+        // Remove DC offset (Kaldi frame option).
+        if config.remove_dc_offset && frame_length > 0 {
+            let mean = frame.iter().sum::<f32>() / frame_length as f32;
+            for v in frame.iter_mut() {
+                *v -= mean;
+            }
+        }
 
         // Pre-emphasis
         for j in (1..frame_length).rev() {
@@ -202,6 +215,18 @@ fn make_window(window_type: WindowType, length: usize) -> Vec<f32> {
         WindowType::Hann => (0..length)
             .map(|i| 0.5 * (1.0 - (2.0 * PI * i as f32 / length as f32).cos()))
             .collect(),
+        WindowType::Povey => {
+            if length <= 1 {
+                return vec![1.0; length];
+            }
+            (0..length)
+                .map(|i| {
+                    let hann = 0.5
+                        - 0.5 * (2.0 * PI * i as f32 / (length as f32 - 1.0)).cos();
+                    hann.powf(0.85)
+                })
+                .collect()
+        }
     }
 }
 
