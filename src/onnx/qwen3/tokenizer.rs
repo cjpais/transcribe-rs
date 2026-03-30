@@ -1,8 +1,15 @@
-//! Decode-only BPE tokenizer for Qwen3-ASR.
+//! BPE tokenizer for Qwen3-ASR (encode + decode).
 //!
-//! Parses `tokenizer.json` (HuggingFace format) and decodes token IDs to text
-//! using the GPT-2 byte-level BPE mapping. No dependency on the `tokenizers`
-//! crate (follows Moonshine's pattern for Windows build compatibility).
+//! Parses `tokenizer.json` (HuggingFace format) and provides both encoding
+//! (text → token IDs) and decoding (token IDs → text) using the GPT-2
+//! byte-level BPE mapping. No dependency on the `tokenizers` crate (follows
+//! Moonshine's pattern for Windows build compatibility).
+//!
+//! Encoding uses greedy longest-match on the byte-level vocabulary. This does
+//! not apply BPE merge rules, so results may differ from the reference tokenizer
+//! on rare subword boundaries. For the short, common English text used in
+//! language-conditioned prompts (e.g. "English", "Chinese"), this produces
+//! identical output to the reference.
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -10,10 +17,15 @@ use std::path::Path;
 
 use crate::TranscribeError;
 
-/// Decode-only tokenizer that maps token IDs to text.
+/// BPE tokenizer that maps between token IDs and text.
 pub struct Qwen3Tokenizer {
     /// Maps token ID to raw byte sequence (after GPT-2 unicode-to-byte decode).
     id_to_bytes: HashMap<u32, Vec<u8>>,
+    /// Maps raw byte sequence to token ID (reverse of `id_to_bytes`).
+    /// Used for greedy longest-match encoding.
+    bytes_to_id: HashMap<Vec<u8>, u32>,
+    /// Maximum token length in bytes (for bounding the greedy search).
+    max_token_len: usize,
     /// Set of special token IDs to skip during decode.
     special_token_ids: HashSet<u32>,
 }
@@ -69,10 +81,67 @@ impl Qwen3Tokenizer {
             }
         }
 
+        // Build reverse map for encoding (bytes → id).
+        // For duplicate byte sequences, prefer the lower token ID.
+        let mut bytes_to_id: HashMap<Vec<u8>, u32> = HashMap::new();
+        let mut max_token_len = 0usize;
+        for (&id, bytes) in &id_to_bytes {
+            max_token_len = max_token_len.max(bytes.len());
+            bytes_to_id
+                .entry(bytes.clone())
+                .and_modify(|existing| {
+                    if id < *existing {
+                        *existing = id;
+                    }
+                })
+                .or_insert(id);
+        }
+
         Ok(Self {
             id_to_bytes,
+            bytes_to_id,
+            max_token_len,
             special_token_ids,
         })
+    }
+
+    /// Encode a text string to token IDs using greedy longest-match.
+    ///
+    /// This does not apply BPE merge rules — it greedily matches the longest
+    /// vocabulary entry at each position. For common English words and language
+    /// names this produces identical results to the reference BPE tokenizer.
+    /// Results may differ on rare subword boundaries.
+    pub(crate) fn encode(&self, text: &str) -> Vec<i64> {
+        let bytes = text.as_bytes();
+        let mut ids = Vec::new();
+        let mut pos = 0;
+
+        while pos < bytes.len() {
+            // Greedy longest match: try decreasing lengths from max_token_len
+            let max_len = self.max_token_len.min(bytes.len() - pos);
+            let mut matched = false;
+            for len in (1..=max_len).rev() {
+                let candidate = &bytes[pos..pos + len];
+                if let Some(&id) = self.bytes_to_id.get(candidate) {
+                    ids.push(id as i64);
+                    pos += len;
+                    matched = true;
+                    break;
+                }
+            }
+            if !matched {
+                // Skip unrecognized byte (shouldn't happen with GPT-2 BPE
+                // which has single-byte entries for all 256 byte values)
+                log::warn!(
+                    "Qwen3 tokenizer encode: no match for byte 0x{:02x} at position {}",
+                    bytes[pos],
+                    pos
+                );
+                pos += 1;
+            }
+        }
+
+        ids
     }
 
     /// Decode a sequence of token IDs to a string, skipping special tokens.

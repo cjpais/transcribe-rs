@@ -5,6 +5,7 @@
 //! - `engine.rs` — wraps `Qwen3AsrModel`, adapts it to the `SpeechModel` trait (capabilities,
 //!   options, language-prefix stripping). Keeps `model.rs` free of library-level concerns.
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use crate::onnx::Quantization;
@@ -33,6 +34,9 @@ const CAPABILITIES: ModelCapabilities = ModelCapabilities {
 /// is always `None`).
 pub struct Qwen3Model {
     inner: Qwen3AsrModel,
+    /// Cache of language name → token IDs. Populated on first use of each
+    /// language, then reused for all subsequent transcriptions.
+    language_cache: HashMap<String, Vec<i64>>,
 }
 
 impl Qwen3Model {
@@ -40,7 +44,10 @@ impl Qwen3Model {
     pub fn load(model_dir: &Path, quantization: &Quantization) -> Result<Self, TranscribeError> {
         let inner = Qwen3AsrModel::load(model_dir, quantization)?;
         log::info!("Loaded Qwen3-ASR model from {:?}", model_dir);
-        Ok(Self { inner })
+        Ok(Self {
+            inner,
+            language_cache: HashMap::new(),
+        })
     }
 
     /// Transcribe with explicit per-call parameters.
@@ -49,12 +56,47 @@ impl Qwen3Model {
         samples: &[f32],
         params: &Qwen3Params,
     ) -> Result<TranscriptionResult, TranscribeError> {
-        let raw = self.inner.transcribe(samples, params.max_tokens)?;
+        // Encode language on first use, then borrow from cache.
+        // Treat empty strings as None (no language conditioning).
+        let lang_key = params.language.as_deref().filter(|s| !s.is_empty());
+        if let Some(lang) = lang_key {
+            self.ensure_language_cached(lang);
+        }
+        let lang_tokens = lang_key
+            .and_then(|lang| self.language_cache.get(lang))
+            .map(|v| v.as_slice());
+
+        let raw = self
+            .inner
+            .transcribe(samples, params.max_tokens, lang_tokens)?;
+        log::debug!("Qwen3-ASR raw decoder output: {:?}", raw);
         let text = strip_language_prefix(&raw);
+        log::debug!("Qwen3-ASR after strip_language_prefix: {:?}", text);
         Ok(TranscriptionResult {
             text,
             segments: None,
         })
+    }
+
+    /// Ensure language token IDs are in the cache, encoding on first use.
+    ///
+    /// Normalizes BCP-47 codes ("en" → "English") before tokenizing, then
+    /// encodes ` {Name}` (with leading space) to match the official Qwen3-ASR
+    /// template where "language" is followed by ` English`, ` Chinese`, etc.
+    fn ensure_language_cached(&mut self, language: &str) {
+        if self.language_cache.contains_key(language) {
+            return;
+        }
+        let normalized = normalize_language(language);
+        let spaced = format!(" {normalized}");
+        let tokens = self.inner.encode_language(&spaced);
+        log::info!(
+            "Qwen3-ASR: encoded language {:?} → {:?} → {:?} (cached for reuse)",
+            language,
+            normalized,
+            tokens
+        );
+        self.language_cache.insert(language.to_string(), tokens);
     }
 }
 
@@ -63,13 +105,22 @@ impl Qwen3Model {
 pub struct Qwen3Params {
     /// Maximum number of decoder tokens to generate.
     ///
-    /// 512 tokens is sufficient for approximately 60 s of typical English audio.
+    /// Default: 512, sufficient for approximately 60 s of typical English audio.
     pub max_tokens: usize,
+
+    /// Language hint (e.g. "English", "en", "zh"). When set, the assistant
+    /// prefix is forced to `language {Name}<asr_text>`, skipping language
+    /// detection entirely. Accepts either full English names ("English") or
+    /// BCP-47 codes ("en") — codes are normalized to names automatically.
+    pub language: Option<String>,
 }
 
 impl Default for Qwen3Params {
     fn default() -> Self {
-        Self { max_tokens: 512 }
+        Self {
+            max_tokens: 512,
+            language: None,
+        }
     }
 }
 
@@ -83,18 +134,16 @@ impl SpeechModel for Qwen3Model {
         samples: &[f32],
         options: &TranscribeOptions,
     ) -> Result<TranscriptionResult, TranscribeError> {
-        if let Some(ref lang) = options.language {
-            log::warn!(
-                "Qwen3-ASR: language hint {:?} is not supported; the model auto-detects language",
-                lang
-            );
-        }
         if options.translate {
             log::warn!(
                 "Qwen3-ASR: translate is not supported; the model produces transcription only"
             );
         }
-        self.transcribe_with(samples, &Qwen3Params::default())
+        let params = Qwen3Params {
+            language: options.language.clone(),
+            ..Default::default()
+        };
+        self.transcribe_with(samples, &params)
     }
 }
 
