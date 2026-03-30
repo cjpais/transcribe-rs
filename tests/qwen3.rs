@@ -80,7 +80,13 @@ fn test_qwen3_max_tokens_truncation() -> Result<(), Box<dyn std::error::Error>> 
 
     let samples = transcribe_rs::audio::read_wav_samples(&wav_path)?;
     let mut model = Qwen3Model::load(&model_path, &Quantization::default())?;
-    let result = model.transcribe_with(&samples, &Qwen3Params { max_tokens: 5 })?;
+    let result = model.transcribe_with(
+        &samples,
+        &Qwen3Params {
+            max_tokens: 5,
+            ..Default::default()
+        },
+    )?;
 
     assert!(
         !result.text.is_empty(),
