@@ -262,7 +262,6 @@ impl PunctModel {
                     .as_slice()
                     .unwrap()
                     .chunks(num_classes)
-                    .skip(0) // batch dim handled by taking first batch only
                     .take(seq_len)
                     .map(|row| {
                         row.iter()
