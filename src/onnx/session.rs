@@ -266,9 +266,7 @@ pub fn create_decoder_session(path: &Path, num_threads: usize) -> Result<Session
             );
         }
         builder
-            .with_execution_providers([CPU::default()
-                .with_arena_allocator(true)
-                .build()])?
+            .with_execution_providers([CPU::default().with_arena_allocator(true).build()])?
             .commit_from_file(path)?
     };
 
