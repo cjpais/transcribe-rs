@@ -291,6 +291,22 @@ impl Qwen3AsrModel {
             );
         }
 
+        // The model should produce `language <Name> <asr_text> <transcription>`.
+        // If the <asr_text> separator token is absent, the decoder failed to produce
+        // a valid transcription (e.g. degenerate "ology" output from int4 quantization
+        // noise on non-speech audio). Return empty string rather than garbage.
+        let asr_text_id = self.config.special_tokens.asr_text_token_id;
+        if !output_tokens.contains(&asr_text_id) {
+            let preview: Vec<_> = output_tokens.iter().take(20).collect();
+            log::warn!(
+                "Qwen3-ASR: no <asr_text> token in output ({} tokens, first 20: {:?}); \
+                 returning empty transcription",
+                output_tokens.len(),
+                preview,
+            );
+            return Ok(String::new());
+        }
+
         Ok(self.tokenizer.decode(&output_tokens))
     }
 

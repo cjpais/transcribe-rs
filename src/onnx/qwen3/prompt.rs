@@ -94,6 +94,7 @@ mod tests {
             audio_start_token_id: 151669,
             audio_end_token_id: 151670,
             audio_pad_token_id: 151676,
+            asr_text_token_id: 151704,
         }
     }
 
