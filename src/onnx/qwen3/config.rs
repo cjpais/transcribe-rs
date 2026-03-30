@@ -90,6 +90,14 @@ pub struct SpecialTokens {
     pub audio_start_token_id: i64,
     pub audio_end_token_id: i64,
     pub audio_pad_token_id: i64,
+    /// Token that separates the language prefix from the transcription text.
+    /// If absent from generated tokens, the model failed to produce a valid transcription.
+    #[serde(default = "default_asr_text_token_id")]
+    pub asr_text_token_id: i64,
+}
+
+fn default_asr_text_token_id() -> i64 {
+    151704
 }
 
 impl Qwen3AsrConfig {
