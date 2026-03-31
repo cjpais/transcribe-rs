@@ -156,13 +156,15 @@ impl CohereModel {
         max_new_tokens: usize,
     ) -> Result<String, TranscribeError> {
         let audio = Array2::from_shape_vec((1, samples.len()), samples.to_vec())?.into_dyn();
-        let encoder_outputs = self.encoder.run(vec![(
-            Cow::Owned(self.encoder_input_name.clone()),
-            ort::value::Value::from_array(audio)?.into_dyn(),
-        )])?;
-
-        let cross_k = extract_output_array(&encoder_outputs, &["n_layer_cross_k"])?;
-        let cross_v = extract_output_array(&encoder_outputs, &["n_layer_cross_v"])?;
+        let (cross_k, cross_v) = {
+            let encoder_outputs = self.encoder.run(vec![(
+                Cow::Owned(self.encoder_input_name.clone()),
+                ort::value::Value::from_array(audio)?.into_dyn(),
+            )])?;
+            let cross_k = extract_output_array(&encoder_outputs, &["n_layer_cross_k"])?;
+            let cross_v = extract_output_array(&encoder_outputs, &["n_layer_cross_v"])?;
+            (cross_k, cross_v)
+        };
 
         let mut generated_ids = prompt_ids.to_vec();
         let mut current_tokens = prompt_ids.to_vec();
