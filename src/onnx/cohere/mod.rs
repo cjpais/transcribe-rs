@@ -1,0 +1,410 @@
+//! Cohere ONNX encoder/decoder transcription engine.
+
+use std::borrow::Cow;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+
+use ndarray::{Array2, ArrayD, Ix3, IxDyn};
+use ort::session::Session;
+
+use super::{session, Quantization};
+use crate::decode::{load_vocab, sentencepiece_to_text};
+use crate::{ModelCapabilities, SpeechModel, TranscribeError, TranscribeOptions, TranscriptionResult};
+
+const SAMPLE_RATE: u32 = 16000;
+const NUM_DECODER_LAYERS: usize = 8;
+const NUM_HEADS: usize = 8;
+const HEAD_DIM: usize = 128;
+const MAX_SEQ_LEN: usize = 1024;
+const MAX_CHUNK_SAMPLES: usize = 30 * SAMPLE_RATE as usize;
+const OVERLAP_SAMPLES: usize = 5 * SAMPLE_RATE as usize;
+const STRIDE_SAMPLES: usize = MAX_CHUNK_SAMPLES - OVERLAP_SAMPLES;
+const DEFAULT_MAX_NEW_TOKENS: usize = 512;
+
+const CAPABILITIES: ModelCapabilities = ModelCapabilities {
+    name: "Cohere INT4",
+    engine_id: "cohere_int4",
+    sample_rate: SAMPLE_RATE,
+    languages: &["en"],
+    supports_timestamps: false,
+    supports_translation: false,
+    supports_streaming: false,
+};
+
+#[derive(Debug, Clone, Default)]
+pub struct CohereParams {
+    /// Language hint for prompt tokens. Defaults to English.
+    pub language: Option<String>,
+    /// Translation is currently ignored by the local ONNX export.
+    pub translate: bool,
+    /// Maximum number of autoregressive tokens to emit per chunk.
+    pub max_new_tokens: Option<usize>,
+}
+
+pub struct CohereModel {
+    encoder: Session,
+    decoder: Session,
+    vocab: Vec<String>,
+    token_to_id: HashMap<String, i64>,
+    eos_id: i64,
+    encoder_input_name: String,
+    decoder_input_names: Vec<String>,
+}
+
+impl CohereModel {
+    pub fn load(model_dir: &Path, quantization: &Quantization) -> Result<Self, TranscribeError> {
+        let encoder_path = resolve_model_file(
+            model_dir,
+            encoder_candidates(quantization),
+            "cohere-encoder.int4.onnx",
+        )?;
+        let decoder_path = resolve_model_file(
+            model_dir,
+            decoder_candidates(quantization),
+            "cohere-decoder.int4.onnx",
+        )?;
+        let vocab_path = resolve_model_file(model_dir, &["tokens.txt", "vocabulary.txt"], "tokens.txt")?;
+
+        log::info!("Loading Cohere encoder from {:?}...", encoder_path);
+        let encoder = session::create_session(&encoder_path)?;
+
+        log::info!("Loading Cohere decoder from {:?}...", decoder_path);
+        let decoder = session::create_session(&decoder_path)?;
+
+        let (vocab, _) = load_vocab(&vocab_path)?;
+        let token_to_id = vocab
+            .iter()
+            .enumerate()
+            .filter(|(_, token)| !token.is_empty())
+            .map(|(id, token)| (token.clone(), id as i64))
+            .collect::<HashMap<_, _>>();
+
+        let encoder_input_name = encoder
+            .inputs()
+            .first()
+            .map(|input| input.name().to_string())
+            .unwrap_or_else(|| "audio".to_string());
+        let decoder_input_names = decoder
+            .inputs()
+            .iter()
+            .map(|input| input.name().to_string())
+            .collect::<Vec<_>>();
+        let eos_id = token_to_id.get("<|endoftext|>").copied().unwrap_or(3);
+
+        Ok(Self {
+            encoder,
+            decoder,
+            vocab,
+            token_to_id,
+            eos_id,
+            encoder_input_name,
+            decoder_input_names,
+        })
+    }
+
+    pub fn transcribe_with(
+        &mut self,
+        samples: &[f32],
+        params: &CohereParams,
+    ) -> Result<TranscriptionResult, TranscribeError> {
+        if params.translate {
+            log::warn!("Cohere ONNX export does not support local translation; ignoring translate=true");
+        }
+
+        if samples.is_empty() {
+            return Ok(TranscriptionResult {
+                text: String::new(),
+                segments: None,
+            });
+        }
+
+        let prompt_ids = self.build_prompt_ids(params.language.as_deref());
+        let max_new_tokens = params.max_new_tokens.unwrap_or(DEFAULT_MAX_NEW_TOKENS);
+
+        let text = if samples.len() <= MAX_CHUNK_SAMPLES {
+            self.transcribe_chunk(samples, &prompt_ids, max_new_tokens)?
+        } else {
+            let mut chunks = Vec::new();
+            let mut offset = 0usize;
+
+            while offset < samples.len() {
+                let end = (offset + MAX_CHUNK_SAMPLES).min(samples.len());
+                let chunk = self.transcribe_chunk(&samples[offset..end], &prompt_ids, max_new_tokens)?;
+                if !chunk.trim().is_empty() {
+                    chunks.push(chunk);
+                }
+
+                if end == samples.len() {
+                    break;
+                }
+                offset = offset.saturating_add(STRIDE_SAMPLES);
+            }
+
+            chunks.join(" ")
+        };
+
+        Ok(TranscriptionResult {
+            text,
+            segments: None,
+        })
+    }
+
+    fn transcribe_chunk(
+        &mut self,
+        samples: &[f32],
+        prompt_ids: &[i64],
+        max_new_tokens: usize,
+    ) -> Result<String, TranscribeError> {
+        let audio = Array2::from_shape_vec((1, samples.len()), samples.to_vec())?.into_dyn();
+        let encoder_outputs = self.encoder.run(vec![(
+            Cow::Owned(self.encoder_input_name.clone()),
+            ort::value::Value::from_array(audio)?.into_dyn(),
+        )])?;
+
+        let cross_k = extract_output_array(&encoder_outputs, &["n_layer_cross_k"])?;
+        let cross_v = extract_output_array(&encoder_outputs, &["n_layer_cross_v"])?;
+
+        let mut generated_ids = prompt_ids.to_vec();
+        let mut current_tokens = prompt_ids.to_vec();
+        let mut offset = 0_i64;
+
+        let mut self_k_cache = ArrayD::<f32>::zeros(IxDyn(&[
+            NUM_DECODER_LAYERS,
+            1,
+            NUM_HEADS,
+            MAX_SEQ_LEN,
+            HEAD_DIM,
+        ]));
+        let mut self_v_cache = ArrayD::<f32>::zeros(IxDyn(&[
+            NUM_DECODER_LAYERS,
+            1,
+            NUM_HEADS,
+            MAX_SEQ_LEN,
+            HEAD_DIM,
+        ]));
+
+        for _ in 0..max_new_tokens {
+            let n_tokens = current_tokens.len();
+            let tokens = Array2::from_shape_vec((1, n_tokens), current_tokens.clone())?.into_dyn();
+            let offset_tensor = ndarray::arr0(offset).into_dyn();
+
+            let decoder_outputs = self.decoder.run(vec![
+                (
+                    Cow::Owned(self.decoder_input_name("tokens", &["input_ids"])),
+                    ort::value::Value::from_array(tokens)?.into_dyn(),
+                ),
+                (
+                    Cow::Owned(self.decoder_input_name(
+                        "in_n_layer_self_k_cache",
+                        &["past_key_values", "past_key_values.key"],
+                    )),
+                    ort::value::Value::from_array(self_k_cache.clone())?.into_dyn(),
+                ),
+                (
+                    Cow::Owned(self.decoder_input_name(
+                        "in_n_layer_self_v_cache",
+                        &["past_key_values.value"],
+                    )),
+                    ort::value::Value::from_array(self_v_cache.clone())?.into_dyn(),
+                ),
+                (
+                    Cow::Owned(self.decoder_input_name("n_layer_cross_k", &["encoder_kv_cache.key"])),
+                    ort::value::Value::from_array(cross_k.clone())?.into_dyn(),
+                ),
+                (
+                    Cow::Owned(self.decoder_input_name("n_layer_cross_v", &["encoder_kv_cache.value"])),
+                    ort::value::Value::from_array(cross_v.clone())?.into_dyn(),
+                ),
+                (
+                    Cow::Owned(self.decoder_input_name("offset", &["cache_position"])),
+                    ort::value::Value::from_array(offset_tensor)?.into_dyn(),
+                ),
+            ])?;
+
+            let logits = extract_output_array(&decoder_outputs, &["logits"])?
+                .into_dimensionality::<Ix3>()
+                .map_err(|e| TranscribeError::Inference(e.to_string()))?;
+            let last_pos = logits.shape()[1].saturating_sub(1);
+            let next_token = logits
+                .slice(ndarray::s![0, last_pos, ..])
+                .iter()
+                .enumerate()
+                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                .map(|(idx, _)| idx as i64)
+                .unwrap_or(self.eos_id);
+
+            if next_token == self.eos_id {
+                break;
+            }
+
+            generated_ids.push(next_token);
+            current_tokens = vec![next_token];
+            offset += n_tokens as i64;
+
+            self_k_cache = extract_output_array(&decoder_outputs, &["out_n_layer_self_k_cache"])?;
+            self_v_cache = extract_output_array(&decoder_outputs, &["out_n_layer_self_v_cache"])?;
+        }
+
+        Ok(self.decode_ids(&generated_ids[prompt_ids.len()..]))
+    }
+
+    fn build_prompt_ids(&self, language: Option<&str>) -> Vec<i64> {
+        let requested = match language.unwrap_or("en") {
+            "auto" => "en",
+            "zh-Hans" | "zh-Hant" => "zh",
+            other => other,
+        };
+
+        let language_token = format!("<|{}|>", requested);
+        let chosen_language = if self.token_to_id.contains_key(&language_token) {
+            requested
+        } else {
+            "en"
+        };
+
+        [
+            "<|startofcontext|>".to_string(),
+            "<|startoftranscript|>".to_string(),
+            "<|emo:undefined|>".to_string(),
+            format!("<|{}|>", chosen_language),
+            format!("<|{}|>", chosen_language),
+            "<|pnc|>".to_string(),
+            "<|noitn|>".to_string(),
+            "<|notimestamp|>".to_string(),
+            "<|nodiarize|>".to_string(),
+        ]
+        .iter()
+        .filter_map(|token| self.token_to_id.get(token).copied())
+        .collect()
+    }
+
+    fn decode_ids(&self, token_ids: &[i64]) -> String {
+        let pieces = token_ids
+            .iter()
+            .filter_map(|&id| self.vocab.get(id as usize))
+            .filter(|token| {
+                !token.trim().is_empty()
+                    && !token.starts_with("<|")
+                    && token.as_str() != "<unk>"
+                    && token.as_str() != "<pad>"
+            })
+            .map(|token| token.as_str())
+            .collect::<Vec<_>>();
+
+        sentencepiece_to_text(&pieces)
+    }
+
+    fn decoder_input_name(&self, preferred: &str, fallbacks: &[&str]) -> String {
+        if self.decoder_input_names.iter().any(|name| name == preferred) {
+            return preferred.to_string();
+        }
+
+        for fallback in fallbacks {
+            if self.decoder_input_names.iter().any(|name| name == fallback) {
+                return (*fallback).to_string();
+            }
+        }
+
+        preferred.to_string()
+    }
+}
+
+impl SpeechModel for CohereModel {
+    fn capabilities(&self) -> ModelCapabilities {
+        CAPABILITIES
+    }
+
+    fn transcribe_raw(
+        &mut self,
+        samples: &[f32],
+        options: &TranscribeOptions,
+    ) -> Result<TranscriptionResult, TranscribeError> {
+        self.transcribe_with(
+            samples,
+            &CohereParams {
+                language: options.language.clone(),
+                translate: options.translate,
+                max_new_tokens: None,
+            },
+        )
+    }
+}
+
+fn resolve_model_file(
+    model_dir: &Path,
+    candidates: &[&str],
+    missing_name: &str,
+) -> Result<PathBuf, TranscribeError> {
+    for base_dir in [model_dir.to_path_buf(), model_dir.join("onnx")] {
+        for candidate in candidates {
+            let path = base_dir.join(candidate);
+            if path.exists() {
+                return Ok(path);
+            }
+        }
+    }
+
+    Err(TranscribeError::ModelNotFound(model_dir.join(missing_name)))
+}
+
+fn encoder_candidates(quantization: &Quantization) -> &'static [&'static str] {
+    match quantization {
+        Quantization::Int8 => &[
+            "cohere-encoder.int8.onnx",
+            "encoder_model.int8.onnx",
+            "cohere-encoder.int4.onnx",
+            "encoder_model.onnx",
+        ],
+        Quantization::FP16 => &[
+            "encoder_model_fp16.onnx",
+            "cohere-encoder.fp16.onnx",
+            "cohere-encoder.int4.onnx",
+            "encoder_model.onnx",
+        ],
+        Quantization::FP32 => &[
+            "cohere-encoder.int4.onnx",
+            "encoder_model.onnx",
+            "cohere-encoder.onnx",
+            "cohere-encoder.int8.onnx",
+        ],
+    }
+}
+
+fn decoder_candidates(quantization: &Quantization) -> &'static [&'static str] {
+    match quantization {
+        Quantization::Int8 => &[
+            "cohere-decoder.int8.onnx",
+            "decoder_model_merged.int8.onnx",
+            "cohere-decoder.int4.onnx",
+            "decoder_model_merged.onnx",
+        ],
+        Quantization::FP16 => &[
+            "decoder_model_merged_fp16.onnx",
+            "cohere-decoder.fp16.onnx",
+            "cohere-decoder.int4.onnx",
+            "decoder_model_merged.onnx",
+        ],
+        Quantization::FP32 => &[
+            "cohere-decoder.int4.onnx",
+            "decoder_model_merged.onnx",
+            "cohere-decoder.onnx",
+            "cohere-decoder.int8.onnx",
+        ],
+    }
+}
+
+fn extract_output_array(
+    outputs: &ort::session::SessionOutputs,
+    names: &[&str],
+) -> Result<ArrayD<f32>, TranscribeError> {
+    for name in names {
+        if let Some(output) = outputs.get(*name) {
+            return Ok(output.try_extract_array::<f32>()?.to_owned());
+        }
+    }
+
+    Err(TranscribeError::Inference(format!(
+        "Missing expected output. Tried: {}",
+        names.join(", ")
+    )))
+}
