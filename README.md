@@ -1,6 +1,6 @@
 # transcribe-rs
 
-Multi-engine speech-to-text library for Rust. Supports Parakeet, Canary, Moonshine, SenseVoice, GigaAM, Whisper, Whisperfile, and OpenAI.
+Multi-engine speech-to-text library for Rust. Supports Parakeet, Canary, Moonshine, SenseVoice, GigaAM, Cohere Transcribe, Whisper, Whisperfile, and OpenAI.
 
 ## Breaking Changes in 0.3.0
 
@@ -24,7 +24,7 @@ No features are enabled by default. Pick the engines you need:
 
 | Feature | Engines |
 |---------|---------|
-| `onnx` | Parakeet, Canary, Moonshine, SenseVoice, GigaAM (via ONNX Runtime) |
+| `onnx` | Parakeet, Canary, Moonshine, SenseVoice, GigaAM, Cohere Transcribe (via ONNX Runtime) |
 | `whisper-cpp` | Whisper (local, GGML via whisper.cpp with Metal/Vulkan/CUDA) |
 | `whisperfile` | Whisperfile (local server wrapper) |
 | `openai` | OpenAI API (remote, async) |
@@ -80,7 +80,7 @@ By default, engines use CPU. To enable GPU acceleration, enable the appropriate 
 ```rust
 use transcribe_rs::{set_ort_accelerator, OrtAccelerator};
 
-// Use CUDA for all ORT engines (SenseVoice, GigaAM, Parakeet, Moonshine)
+// Use CUDA for all ORT engines (SenseVoice, GigaAM, Parakeet, Moonshine, Canary, Cohere Transcribe)
 set_ort_accelerator(OrtAccelerator::Cuda);
 
 // Or auto-detect the best available GPU
@@ -212,6 +212,29 @@ let mut model = GigaAMModel::load(
 let result = model.transcribe_file(&PathBuf::from("audio.wav"), &transcribe_rs::TranscribeOptions::default())?;
 ```
 
+### Cohere Transcribe
+
+```rust
+use transcribe_rs::onnx::cohere_transcribe::{CohereTranscribeModel, CohereTranscribeParams};
+use transcribe_rs::onnx::Quantization;
+use std::path::PathBuf;
+
+let mut model = CohereTranscribeModel::load(
+    &PathBuf::from("models/cohere-transcribe"),
+    &Quantization::default(),
+)?;
+
+let samples = transcribe_rs::audio::read_wav_samples(&PathBuf::from("audio.wav"))?;
+let result = model.transcribe_with(
+    &samples,
+    &CohereTranscribeParams {
+        language: Some("en".to_string()),
+        ..Default::default()
+    },
+)?;
+println!("{}", result.text);
+```
+
 ### Whisper (whisper.cpp)
 
 ```rust
@@ -298,6 +321,7 @@ All audio input must be **16 kHz, mono, 16-bit PCM WAV**.
 | SenseVoice (int8) | [blob.handy.computer](https://blob.handy.computer/sense-voice-int8.tar.gz) / [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models) |
 | Moonshine | [blob.handy.computer (base)](https://blob.handy.computer/moonshine-base.tar.gz), [blob.handy.computer (tiny streaming en)](https://blob.handy.computer/moonshine-tiny-streaming-en.tar.gz), [blob.handy.computer (small streaming en)](https://blob.handy.computer/moonshine-small-streaming-en.tar.gz), [blob.handy.computer (medium streaming en)](https://blob.handy.computer/moonshine-medium-streaming-en.tar.gz) |
 | GigaAM | [HuggingFace](https://huggingface.co/istupakov/gigaam-v3-onnx/tree/main) |
+| Cohere Transcribe | [HuggingFace](https://huggingface.co/eschmidbauer/cohere-transcribe-03-2026-onnx) (ONNX export of [CohereLabs/cohere-transcribe-03-2026](https://huggingface.co/CohereLabs/cohere-transcribe-03-2026)) |
 | Whisper (GGML) | [HuggingFace](https://huggingface.co/ggerganov/whisper.cpp/tree/main) |
 | Whisperfile binary | [GitHub](https://github.com/mozilla-ai/llamafile/releases/download/0.9.3/whisperfile-0.9.3) |
 
@@ -352,6 +376,18 @@ models/giga-am-v3/
 └── vocab.txt
 ```
 
+**Cohere Transcribe** (directory):
+```
+models/cohere-transcribe/
+├── encoder-0.onnx
+├── encoder-1.onnx
+├── encoder-2.onnx
+├── encoder-3.onnx
+├── cross_kv.onnx
+├── decoder.onnx
+└── vocab.txt
+```
+
 **Whisper**: single file (e.g. `whisper-medium-q4_1.bin`).
 
 ### Moonshine Variants
@@ -378,6 +414,7 @@ cargo run --example canary --features onnx
 cargo run --example sense_voice --features onnx
 cargo run --example moonshine --features onnx
 cargo run --example moonshine_streaming --features onnx
+cargo run --example cohere_transcribe --features onnx
 cargo run --example gigaam --features onnx
 cargo run --example whisper --features whisper-cpp
 cargo run --example whisperfile --features whisperfile

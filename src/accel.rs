@@ -14,7 +14,8 @@ use serde::{Deserialize, Serialize};
 // ORT accelerator
 // ---------------------------------------------------------------------------
 
-/// Preferred hardware accelerator for ORT-based engines (SenseVoice, GigaAM, Parakeet, Moonshine).
+/// Preferred hardware accelerator for ORT-based engines
+/// (SenseVoice, GigaAM, Parakeet, Moonshine, Canary, Cohere Transcribe).
 ///
 /// Each variant requires its corresponding `ort-*` feature flag to be enabled at compile time.
 /// If the selected accelerator's feature is not enabled, session creation falls back to CPU

@@ -4,7 +4,8 @@
 //!
 //! ## Features
 //!
-//! - **ONNX Models**: SenseVoice, GigaAM, Parakeet, Moonshine (requires `onnx` feature)
+//! - **ONNX Models**: SenseVoice, GigaAM, Parakeet, Moonshine, Canary, Cohere Transcribe
+//!   (requires `onnx` feature)
 //! - **Whisper**: OpenAI Whisper via GGML (requires `whisper-cpp` feature)
 //! - **Whisperfile**: Mozilla Whisperfile server (requires `whisperfile` feature)
 //! - **Remote**: OpenAI API (requires `openai` feature)

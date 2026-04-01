@@ -20,6 +20,7 @@ pub enum Quantization {
 }
 
 pub mod canary;
+pub mod cohere_transcribe;
 pub mod gigaam;
 pub mod moonshine;
 pub mod parakeet;

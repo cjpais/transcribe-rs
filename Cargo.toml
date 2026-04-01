@@ -13,7 +13,7 @@ default = []
 # Shared audio feature extraction (mel spectrogram, CTC decode, etc.)
 audio-features = ["dep:ndarray", "dep:rustfft"]
 
-# ONNX-based models (SenseVoice, GigaAM, Parakeet, Moonshine, Canary)
+# ONNX-based models (SenseVoice, GigaAM, Parakeet, Moonshine, Canary, Cohere Transcribe)
 onnx = ["audio-features", "dep:ort", "dep:base64", "dep:regex", "dep:once_cell"]
 
 # Whisper via whisper.cpp (CPU-only by default; add whisper-metal, whisper-vulkan, or whisper-cuda for GPU)
@@ -108,6 +108,10 @@ name = "canary"
 required-features = ["onnx"]
 
 [[example]]
+name = "cohere_transcribe"
+required-features = ["onnx"]
+
+[[example]]
 name = "whisperfile"
 required-features = ["whisperfile"]
 
@@ -141,6 +145,10 @@ required-features = ["onnx"]
 
 [[test]]
 name = "canary"
+required-features = ["onnx"]
+
+[[test]]
+name = "cohere_transcribe"
 required-features = ["onnx"]
 
 [[test]]
