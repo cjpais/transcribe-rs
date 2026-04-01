@@ -16,11 +16,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
     let args: Vec<String> = std::env::args().collect();
-    let quant = args.get(1).map(|s| s.as_str()).unwrap_or("int4");
+    let quant = args.get(1).map(|s| s.as_str()).unwrap_or("int8");
 
     let (model_path, quantization) = match quant {
-        "int4" => ("models/cohere-int4-cstr", Quantization::Int4),
-        "int8" => ("models/cohere-int8-tristan", Quantization::Int8),
+        "int4" => ("models/cohere-int4", Quantization::Int4),
+        "int8" => ("models/cohere-int8", Quantization::Int8),
         other => {
             eprintln!("Unknown quantization: {other}. Use 'int4' or 'int8'.");
             std::process::exit(1);
