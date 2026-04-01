@@ -1,6 +1,6 @@
 # transcribe-rs
 
-Multi-engine speech-to-text library for Rust. Supports Parakeet, Canary, Moonshine, SenseVoice, GigaAM, Whisper, Whisperfile, and OpenAI.
+Multi-engine speech-to-text library for Rust. Supports Parakeet, Canary, Cohere, Moonshine, SenseVoice, GigaAM, Whisper, Whisperfile, and OpenAI.
 
 ## Breaking Changes in 0.3.0
 
@@ -24,7 +24,7 @@ No features are enabled by default. Pick the engines you need:
 
 | Feature | Engines |
 |---------|---------|
-| `onnx` | Parakeet, Canary, Moonshine, SenseVoice, GigaAM (via ONNX Runtime) |
+| `onnx` | Parakeet, Canary, Cohere, Moonshine, SenseVoice, GigaAM (via ONNX Runtime) |
 | `whisper-cpp` | Whisper (local, GGML via whisper.cpp with Metal/Vulkan/CUDA) |
 | `whisperfile` | Whisperfile (local server wrapper) |
 | `openai` | OpenAI API (remote, async) |
@@ -142,6 +142,30 @@ Model variant (Flash vs V2) is auto-detected from vocabulary size. Flash models 
 - **PnC** (punctuation and capitalization) — enabled by default. When on, the model adds proper punctuation and capitalization. Set `use_pnc: false` for raw output.
 - **ITN** (inverse text normalization) — enabled by default. Converts spoken numbers to written form (e.g. "one hundred twenty three" becomes "123"). Set `use_itn: false` to disable. Only supported on V2 models; silently ignored on Flash.
 - **Translation** — set `target_language` to translate between supported languages.
+
+### Cohere
+
+```rust
+use transcribe_rs::onnx::cohere::{CohereModel, CohereParams};
+use transcribe_rs::onnx::Quantization;
+use std::path::PathBuf;
+
+let mut model = CohereModel::load(
+    &PathBuf::from("models/cohere-int4"),
+    &Quantization::Int4,
+)?;
+
+let samples = transcribe_rs::audio::read_wav_samples(&PathBuf::from("audio.wav"))?;
+let result = model.transcribe_with(
+    &samples,
+    &CohereParams {
+        language: Some("en".to_string()),
+        ..Default::default()
+    },
+)?;
+```
+
+Available in int4 and int8 quantizations.
 
 ### SenseVoice
 
@@ -295,6 +319,8 @@ All audio input must be **16 kHz, mono, 16-bit PCM WAV**.
 | Canary 180M Flash | [HuggingFace](https://huggingface.co/istupakov/canary-180m-flash-onnx) |
 | Canary 1B Flash | [HuggingFace](https://huggingface.co/istupakov/canary-1b-flash-onnx) |
 | Canary 1B v2 | [HuggingFace](https://huggingface.co/istupakov/canary-1b-v2-onnx) |
+| Cohere (int4) | [HuggingFace](https://huggingface.co/cstr/cohere-transcribe-onnx-int4) |
+| Cohere (int8) | [HuggingFace](https://huggingface.co/tristanripke/cohere-transcribe-onnx-int8) |
 | SenseVoice (int8) | [blob.handy.computer](https://blob.handy.computer/sense-voice-int8.tar.gz) / [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models) |
 | Moonshine | [blob.handy.computer (base)](https://blob.handy.computer/moonshine-base.tar.gz), [blob.handy.computer (tiny streaming en)](https://blob.handy.computer/moonshine-tiny-streaming-en.tar.gz), [blob.handy.computer (small streaming en)](https://blob.handy.computer/moonshine-small-streaming-en.tar.gz), [blob.handy.computer (medium streaming en)](https://blob.handy.computer/moonshine-medium-streaming-en.tar.gz) |
 | GigaAM | [HuggingFace](https://huggingface.co/istupakov/gigaam-v3-onnx/tree/main) |
@@ -319,6 +345,16 @@ models/canary-1b-v2/
 ├── decoder-model.int8.onnx
 ├── nemo128.onnx
 └── vocab.txt
+```
+
+**Cohere** (directory):
+```
+models/cohere-int4/
+├── cohere-encoder.int4.onnx
+├── cohere-encoder.int4.onnx.data
+├── cohere-decoder.int4.onnx
+├── cohere-decoder.int4.onnx.data
+└── tokens.txt
 ```
 
 **SenseVoice** (directory):
@@ -375,6 +411,7 @@ Each engine has an example in `examples/`. Run with the appropriate feature flag
 ```bash
 cargo run --example parakeet --features onnx
 cargo run --example canary --features onnx
+cargo run --example cohere --features onnx
 cargo run --example sense_voice --features onnx
 cargo run --example moonshine --features onnx
 cargo run --example moonshine_streaming --features onnx
