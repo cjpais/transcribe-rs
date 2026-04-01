@@ -28,3 +28,40 @@ fn test_cohere_jfk() {
         "Cohere transcription should not be empty"
     );
 }
+
+#[test]
+fn test_cohere_german() {
+    let model_path = PathBuf::from("models/cohere-int4");
+    let audio_path = PathBuf::from("samples/german.wav");
+
+    if !common::require_paths(&[&model_path, &audio_path]) {
+        return;
+    }
+
+    let mut model =
+        CohereModel::load(&model_path, &Quantization::Int4).expect("Failed to load Cohere model");
+
+    let result = model
+        .transcribe_file(
+            &audio_path,
+            &transcribe_rs::TranscribeOptions {
+                language: Some("de".into()),
+                ..Default::default()
+            },
+        )
+        .expect("Failed to transcribe German audio with Cohere model");
+
+    println!("German transcription: {}", result.text);
+    assert!(
+        !result.text.trim().is_empty(),
+        "Cohere German transcription should not be empty"
+    );
+
+    // Output should contain German words
+    let text_lower = result.text.to_lowercase();
+    assert!(
+        text_lower.contains("strand") || text_lower.contains("die") || text_lower.contains("der"),
+        "German transcription should contain German words, got: '{}'",
+        result.text
+    );
+}

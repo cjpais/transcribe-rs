@@ -26,7 +26,9 @@ const CAPABILITIES: ModelCapabilities = ModelCapabilities {
     name: "Cohere",
     engine_id: "cohere",
     sample_rate: SAMPLE_RATE,
-    languages: &["en"],
+    languages: &[
+        "en", "de", "fr", "it", "es", "pt", "el", "nl", "pl", "ar", "vi", "zh", "ja", "ko",
+    ],
     supports_timestamps: false,
     supports_translation: false,
     supports_streaming: false,
