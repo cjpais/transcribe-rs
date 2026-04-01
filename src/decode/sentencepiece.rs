@@ -67,9 +67,7 @@ mod tests {
     #[test]
     fn test_byte_tokens_full_cjk_sequence() {
         // 你好 = E4 BD A0 E5 A5 BD
-        let tokens = vec![
-            "<0xE4>", "<0xBD>", "<0xA0>", "<0xE5>", "<0xA5>", "<0xBD>",
-        ];
+        let tokens = vec!["<0xE4>", "<0xBD>", "<0xA0>", "<0xE5>", "<0xA5>", "<0xBD>"];
         let mut bytes: Vec<u8> = Vec::new();
         for token in &tokens {
             if let Some(byte_val) = parse_byte_token(token) {

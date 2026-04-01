@@ -430,5 +430,4 @@ impl MoonshineTokenizer {
 
         Ok(text.to_string())
     }
-
 }
