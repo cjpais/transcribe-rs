@@ -5,7 +5,9 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use ndarray::{Array2, ArrayD, Ix3, IxDyn};
+use ort::session::SessionInputValue;
 use ort::session::Session;
+use ort::value::DynValue;
 
 use super::{session, Quantization};
 use crate::decode::{load_vocab, sentencepiece_to_text};
@@ -157,83 +159,78 @@ impl CohereModel {
     ) -> Result<String, TranscribeError> {
         let audio = Array2::from_shape_vec((1, samples.len()), samples.to_vec())?.into_dyn();
         let (cross_k, cross_v) = {
-            let encoder_outputs = self.encoder.run(vec![(
+            let mut encoder_outputs = self.encoder.run(vec![(
                 Cow::Owned(self.encoder_input_name.clone()),
                 ort::value::Value::from_array(audio)?.into_dyn(),
             )])?;
-            let cross_k = extract_output_array(&encoder_outputs, &["n_layer_cross_k"])?;
-            let cross_v = extract_output_array(&encoder_outputs, &["n_layer_cross_v"])?;
+            let cross_k = remove_output(&mut encoder_outputs, "n_layer_cross_k")?;
+            let cross_v = remove_output(&mut encoder_outputs, "n_layer_cross_v")?;
             (cross_k, cross_v)
         };
+
+        // Resolve decoder input names once before the loop.
+        let token_name = self.decoder_input_name("tokens", &["input_ids"]);
+        let self_k_name = self.decoder_input_name(
+            "in_n_layer_self_k_cache",
+            &["past_key_values", "past_key_values.key"],
+        );
+        let self_v_name = self.decoder_input_name(
+            "in_n_layer_self_v_cache",
+            &["past_key_values.value"],
+        );
+        let cross_k_name = self.decoder_input_name("n_layer_cross_k", &["encoder_kv_cache.key"]);
+        let cross_v_name = self.decoder_input_name("n_layer_cross_v", &["encoder_kv_cache.value"]);
+        let offset_name = self.decoder_input_name("offset", &["cache_position"]);
 
         let mut generated_ids = prompt_ids.to_vec();
         let mut current_tokens = prompt_ids.to_vec();
         let mut offset = 0_i64;
 
-        let mut self_k_cache = ArrayD::<f32>::zeros(IxDyn(&[
-            NUM_DECODER_LAYERS,
-            1,
-            NUM_HEADS,
-            MAX_SEQ_LEN,
-            HEAD_DIM,
-        ]));
-        let mut self_v_cache = ArrayD::<f32>::zeros(IxDyn(&[
-            NUM_DECODER_LAYERS,
-            1,
-            NUM_HEADS,
-            MAX_SEQ_LEN,
-            HEAD_DIM,
-        ]));
+        let mut self_k_cache: DynValue = ort::value::Value::from_array(
+            ArrayD::<f32>::zeros(IxDyn(&[NUM_DECODER_LAYERS, 1, NUM_HEADS, MAX_SEQ_LEN, HEAD_DIM])),
+        )?
+        .into_dyn();
+        let mut self_v_cache: DynValue = ort::value::Value::from_array(
+            ArrayD::<f32>::zeros(IxDyn(&[NUM_DECODER_LAYERS, 1, NUM_HEADS, MAX_SEQ_LEN, HEAD_DIM])),
+        )?
+        .into_dyn();
 
         for _ in 0..max_new_tokens {
             let n_tokens = current_tokens.len();
             let tokens = Array2::from_shape_vec((1, n_tokens), current_tokens.clone())?.into_dyn();
             let offset_tensor = ndarray::arr0(offset).into_dyn();
 
-            let decoder_outputs = self.decoder.run(vec![
-                (
-                    Cow::Owned(self.decoder_input_name("tokens", &["input_ids"])),
-                    ort::value::Value::from_array(tokens)?.into_dyn(),
-                ),
-                (
-                    Cow::Owned(self.decoder_input_name(
-                        "in_n_layer_self_k_cache",
-                        &["past_key_values", "past_key_values.key"],
-                    )),
-                    ort::value::Value::from_array(self_k_cache.clone())?.into_dyn(),
-                ),
-                (
-                    Cow::Owned(self.decoder_input_name(
-                        "in_n_layer_self_v_cache",
-                        &["past_key_values.value"],
-                    )),
-                    ort::value::Value::from_array(self_v_cache.clone())?.into_dyn(),
-                ),
-                (
-                    Cow::Owned(self.decoder_input_name("n_layer_cross_k", &["encoder_kv_cache.key"])),
-                    ort::value::Value::from_array(cross_k.clone())?.into_dyn(),
-                ),
-                (
-                    Cow::Owned(self.decoder_input_name("n_layer_cross_v", &["encoder_kv_cache.value"])),
-                    ort::value::Value::from_array(cross_v.clone())?.into_dyn(),
-                ),
-                (
-                    Cow::Owned(self.decoder_input_name("offset", &["cache_position"])),
-                    ort::value::Value::from_array(offset_tensor)?.into_dyn(),
-                ),
-            ])?;
+            // Build inputs: move self caches (replaced from output below),
+            // borrow cross caches (constant across the loop).
+            let inputs: Vec<(Cow<str>, SessionInputValue)> = vec![
+                (Cow::Borrowed(token_name.as_str()), SessionInputValue::from(ort::value::Value::from_array(tokens)?)),
+                (Cow::Borrowed(self_k_name.as_str()), SessionInputValue::from(self_k_cache)),
+                (Cow::Borrowed(self_v_name.as_str()), SessionInputValue::from(self_v_cache)),
+                (Cow::Borrowed(cross_k_name.as_str()), SessionInputValue::from(&cross_k)),
+                (Cow::Borrowed(cross_v_name.as_str()), SessionInputValue::from(&cross_v)),
+                (Cow::Borrowed(offset_name.as_str()), SessionInputValue::from(ort::value::Value::from_array(offset_tensor)?)),
+            ];
 
-            let logits = extract_output_array(&decoder_outputs, &["logits"])?
-                .into_dimensionality::<Ix3>()
-                .map_err(|e| TranscribeError::Inference(e.to_string()))?;
-            let last_pos = logits.shape()[1].saturating_sub(1);
-            let next_token = logits
-                .slice(ndarray::s![0, last_pos, ..])
-                .iter()
-                .enumerate()
-                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                .map(|(idx, _)| idx as i64)
-                .unwrap_or(self.eos_id);
+            let mut decoder_outputs = self.decoder.run(inputs)?;
+
+            // Extract logits in a scoped borrow, then release before remove().
+            let next_token = {
+                let logits = decoder_outputs
+                    .get("logits")
+                    .ok_or_else(|| TranscribeError::Inference("Missing logits output".into()))?
+                    .try_extract_array::<f32>()?;
+                let logits = logits
+                    .into_dimensionality::<Ix3>()
+                    .map_err(|e| TranscribeError::Inference(e.to_string()))?;
+                let last_pos = logits.shape()[1].saturating_sub(1);
+                logits
+                    .slice(ndarray::s![0, last_pos, ..])
+                    .iter()
+                    .enumerate()
+                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                    .map(|(idx, _)| idx as i64)
+                    .unwrap_or(self.eos_id)
+            };
 
             if next_token == self.eos_id {
                 break;
@@ -243,8 +240,9 @@ impl CohereModel {
             current_tokens = vec![next_token];
             offset += n_tokens as i64;
 
-            self_k_cache = extract_output_array(&decoder_outputs, &["out_n_layer_self_k_cache"])?;
-            self_v_cache = extract_output_array(&decoder_outputs, &["out_n_layer_self_v_cache"])?;
+            // Take KV caches directly from outputs (no data copy).
+            self_k_cache = remove_output(&mut decoder_outputs, "out_n_layer_self_k_cache")?;
+            self_v_cache = remove_output(&mut decoder_outputs, "out_n_layer_self_v_cache")?;
         }
 
         Ok(self.decode_ids(&generated_ids[prompt_ids.len()..]))
@@ -395,18 +393,11 @@ fn decoder_candidates(quantization: &Quantization) -> &'static [&'static str] {
     }
 }
 
-fn extract_output_array(
-    outputs: &ort::session::SessionOutputs,
-    names: &[&str],
-) -> Result<ArrayD<f32>, TranscribeError> {
-    for name in names {
-        if let Some(output) = outputs.get(*name) {
-            return Ok(output.try_extract_array::<f32>()?.to_owned());
-        }
-    }
-
-    Err(TranscribeError::Inference(format!(
-        "Missing expected output. Tried: {}",
-        names.join(", ")
-    )))
+fn remove_output(
+    outputs: &mut ort::session::SessionOutputs,
+    name: &str,
+) -> Result<DynValue, TranscribeError> {
+    outputs
+        .remove(name)
+        .ok_or_else(|| TranscribeError::Inference(format!("Missing expected output: {name}")))
 }
