@@ -10,7 +10,7 @@ use ort::session::SessionInputValue;
 use ort::value::DynValue;
 
 use super::{session, Quantization};
-use crate::decode::{load_vocab, sentencepiece_to_text, GreedyDecoder};
+use crate::decode::{load_vocab, parse_byte_token, GreedyDecoder};
 use crate::{
     ModelCapabilities, SpeechModel, TranscribeError, TranscribeOptions, TranscriptionResult,
 };
@@ -294,7 +294,7 @@ impl CohereModel {
     }
 
     fn decode_ids(&self, token_ids: &[i64]) -> String {
-        let pieces = token_ids
+        let tokens: Vec<&str> = token_ids
             .iter()
             .filter_map(|&id| self.vocab.get(id as usize))
             .filter(|token| {
@@ -304,9 +304,24 @@ impl CohereModel {
                     && token.as_str() != "<pad>"
             })
             .map(|token| token.as_str())
-            .collect::<Vec<_>>();
+            .collect();
 
-        sentencepiece_to_text(&pieces)
+        // Handle byte-level BPE tokens (<0xNN>) by collecting into a byte buffer.
+        // SentencePiece tokenizers emit these for characters outside the base vocabulary
+        // (e.g. CJK characters are split into individual UTF-8 bytes).
+        let mut bytes: Vec<u8> = Vec::new();
+        for token in &tokens {
+            if let Some(byte_val) = parse_byte_token(token) {
+                bytes.push(byte_val);
+            } else {
+                bytes.extend(token.as_bytes());
+            }
+        }
+
+        let text = String::from_utf8_lossy(&bytes);
+        let text = text.trim();
+        // Clean up contraction spacing (e.g. "can 't" → "can't")
+        text.replace(" '", "'")
     }
 
     fn decoder_input_name(&self, preferred: &str, fallbacks: &[&str]) -> String {

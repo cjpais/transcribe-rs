@@ -7,7 +7,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 
-use crate::decode::GreedyDecoder;
+use crate::decode::{parse_byte_token, GreedyDecoder};
 use crate::onnx::session;
 use crate::onnx::Quantization;
 use crate::{
@@ -417,7 +417,7 @@ impl MoonshineTokenizer {
         let mut bytes: Vec<u8> = Vec::new();
 
         for token in &tokens {
-            if let Some(byte_val) = Self::parse_byte_token(token) {
+            if let Some(byte_val) = parse_byte_token(token) {
                 bytes.push(byte_val);
             } else {
                 let decoded = token.replace('\u{2581}', " ");
@@ -429,14 +429,5 @@ impl MoonshineTokenizer {
         let text = text.strip_prefix(' ').unwrap_or(&text);
 
         Ok(text.to_string())
-    }
-
-    fn parse_byte_token(token: &str) -> Option<u8> {
-        if token.starts_with("<0x") && token.ends_with('>') && token.len() == 6 {
-            let hex = &token[3..5];
-            u8::from_str_radix(hex, 16).ok()
-        } else {
-            None
-        }
     }
 }
