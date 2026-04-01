@@ -15,8 +15,8 @@ fn get_audio_duration(path: &PathBuf) -> Result<f64, Box<dyn std::error::Error>>
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
-    let model_path = PathBuf::from("models/cohere-int4");
-    let wav_path = PathBuf::from("samples/jfk.wav");
+    let model_path = PathBuf::from("models/cohere-int4-cstr");
+    let wav_path = PathBuf::from("samples/dots.wav");
 
     let audio_duration = get_audio_duration(&wav_path)?;
     println!("Audio duration: {:.2}s", audio_duration);
@@ -36,7 +36,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Transcription completed in {:.2?}", transcribe_duration);
 
     let speedup_factor = audio_duration / transcribe_duration.as_secs_f64();
-    println!("Real-time speedup: {:.2}x faster than real-time", speedup_factor);
+    println!(
+        "Real-time speedup: {:.2}x faster than real-time",
+        speedup_factor
+    );
     println!("Transcription result:\n{}", result.text);
 
     Ok(())

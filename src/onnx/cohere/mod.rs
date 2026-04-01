@@ -5,22 +5,21 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use ndarray::{Array2, ArrayD, Ix3, IxDyn};
-use ort::session::SessionInputValue;
 use ort::session::Session;
+use ort::session::SessionInputValue;
 use ort::value::DynValue;
 
 use super::{session, Quantization};
-use crate::decode::{load_vocab, sentencepiece_to_text};
-use crate::{ModelCapabilities, SpeechModel, TranscribeError, TranscribeOptions, TranscriptionResult};
+use crate::decode::{load_vocab, sentencepiece_to_text, GreedyDecoder};
+use crate::{
+    ModelCapabilities, SpeechModel, TranscribeError, TranscribeOptions, TranscriptionResult,
+};
 
 const SAMPLE_RATE: u32 = 16000;
 const NUM_DECODER_LAYERS: usize = 8;
 const NUM_HEADS: usize = 8;
 const HEAD_DIM: usize = 128;
 const MAX_SEQ_LEN: usize = 1024;
-const MAX_CHUNK_SAMPLES: usize = 30 * SAMPLE_RATE as usize;
-const OVERLAP_SAMPLES: usize = 5 * SAMPLE_RATE as usize;
-const STRIDE_SAMPLES: usize = MAX_CHUNK_SAMPLES - OVERLAP_SAMPLES;
 const DEFAULT_MAX_NEW_TOKENS: usize = 512;
 
 const CAPABILITIES: ModelCapabilities = ModelCapabilities {
@@ -65,7 +64,8 @@ impl CohereModel {
             decoder_candidates(quantization),
             "cohere-decoder.int4.onnx",
         )?;
-        let vocab_path = resolve_model_file(model_dir, &["tokens.txt", "vocabulary.txt"], "tokens.txt")?;
+        let vocab_path =
+            resolve_model_file(model_dir, &["tokens.txt", "vocabulary.txt"], "tokens.txt")?;
 
         log::info!("Loading Cohere encoder from {:?}...", encoder_path);
         let encoder = session::create_session(&encoder_path)?;
@@ -110,7 +110,9 @@ impl CohereModel {
         params: &CohereParams,
     ) -> Result<TranscriptionResult, TranscribeError> {
         if params.translate {
-            log::warn!("Cohere ONNX export does not support local translation; ignoring translate=true");
+            log::warn!(
+                "Cohere ONNX export does not support local translation; ignoring translate=true"
+            );
         }
 
         if samples.is_empty() {
@@ -123,27 +125,7 @@ impl CohereModel {
         let prompt_ids = self.build_prompt_ids(params.language.as_deref());
         let max_new_tokens = params.max_new_tokens.unwrap_or(DEFAULT_MAX_NEW_TOKENS);
 
-        let text = if samples.len() <= MAX_CHUNK_SAMPLES {
-            self.transcribe_chunk(samples, &prompt_ids, max_new_tokens)?
-        } else {
-            let mut chunks = Vec::new();
-            let mut offset = 0usize;
-
-            while offset < samples.len() {
-                let end = (offset + MAX_CHUNK_SAMPLES).min(samples.len());
-                let chunk = self.transcribe_chunk(&samples[offset..end], &prompt_ids, max_new_tokens)?;
-                if !chunk.trim().is_empty() {
-                    chunks.push(chunk);
-                }
-
-                if end == samples.len() {
-                    break;
-                }
-                offset = offset.saturating_add(STRIDE_SAMPLES);
-            }
-
-            chunks.join(" ")
-        };
+        let text = self.transcribe_chunk(samples, &prompt_ids, max_new_tokens)?;
 
         Ok(TranscriptionResult {
             text,
@@ -174,26 +156,35 @@ impl CohereModel {
             "in_n_layer_self_k_cache",
             &["past_key_values", "past_key_values.key"],
         );
-        let self_v_name = self.decoder_input_name(
-            "in_n_layer_self_v_cache",
-            &["past_key_values.value"],
-        );
+        let self_v_name =
+            self.decoder_input_name("in_n_layer_self_v_cache", &["past_key_values.value"]);
         let cross_k_name = self.decoder_input_name("n_layer_cross_k", &["encoder_kv_cache.key"]);
         let cross_v_name = self.decoder_input_name("n_layer_cross_v", &["encoder_kv_cache.value"]);
         let offset_name = self.decoder_input_name("offset", &["cache_position"]);
 
-        let mut generated_ids = prompt_ids.to_vec();
+        let mut greedy = GreedyDecoder::new(self.eos_id);
+        let mut generated_ids: Vec<i64> = Vec::new();
         let mut current_tokens = prompt_ids.to_vec();
         let mut offset = 0_i64;
 
-        let mut self_k_cache: DynValue = ort::value::Value::from_array(
-            ArrayD::<f32>::zeros(IxDyn(&[NUM_DECODER_LAYERS, 1, NUM_HEADS, MAX_SEQ_LEN, HEAD_DIM])),
-        )?
-        .into_dyn();
-        let mut self_v_cache: DynValue = ort::value::Value::from_array(
-            ArrayD::<f32>::zeros(IxDyn(&[NUM_DECODER_LAYERS, 1, NUM_HEADS, MAX_SEQ_LEN, HEAD_DIM])),
-        )?
-        .into_dyn();
+        let mut self_k_cache: DynValue =
+            ort::value::Value::from_array(ArrayD::<f32>::zeros(IxDyn(&[
+                NUM_DECODER_LAYERS,
+                1,
+                NUM_HEADS,
+                MAX_SEQ_LEN,
+                HEAD_DIM,
+            ])))?
+            .into_dyn();
+        let mut self_v_cache: DynValue =
+            ort::value::Value::from_array(ArrayD::<f32>::zeros(IxDyn(&[
+                NUM_DECODER_LAYERS,
+                1,
+                NUM_HEADS,
+                MAX_SEQ_LEN,
+                HEAD_DIM,
+            ])))?
+            .into_dyn();
 
         for _ in 0..max_new_tokens {
             let n_tokens = current_tokens.len();
@@ -203,18 +194,36 @@ impl CohereModel {
             // Build inputs: move self caches (replaced from output below),
             // borrow cross caches (constant across the loop).
             let inputs: Vec<(Cow<str>, SessionInputValue)> = vec![
-                (Cow::Borrowed(token_name.as_str()), SessionInputValue::from(ort::value::Value::from_array(tokens)?)),
-                (Cow::Borrowed(self_k_name.as_str()), SessionInputValue::from(self_k_cache)),
-                (Cow::Borrowed(self_v_name.as_str()), SessionInputValue::from(self_v_cache)),
-                (Cow::Borrowed(cross_k_name.as_str()), SessionInputValue::from(&cross_k)),
-                (Cow::Borrowed(cross_v_name.as_str()), SessionInputValue::from(&cross_v)),
-                (Cow::Borrowed(offset_name.as_str()), SessionInputValue::from(ort::value::Value::from_array(offset_tensor)?)),
+                (
+                    Cow::Borrowed(token_name.as_str()),
+                    SessionInputValue::from(ort::value::Value::from_array(tokens)?),
+                ),
+                (
+                    Cow::Borrowed(self_k_name.as_str()),
+                    SessionInputValue::from(self_k_cache),
+                ),
+                (
+                    Cow::Borrowed(self_v_name.as_str()),
+                    SessionInputValue::from(self_v_cache),
+                ),
+                (
+                    Cow::Borrowed(cross_k_name.as_str()),
+                    SessionInputValue::from(&cross_k),
+                ),
+                (
+                    Cow::Borrowed(cross_v_name.as_str()),
+                    SessionInputValue::from(&cross_v),
+                ),
+                (
+                    Cow::Borrowed(offset_name.as_str()),
+                    SessionInputValue::from(ort::value::Value::from_array(offset_tensor)?),
+                ),
             ];
 
             let mut decoder_outputs = self.decoder.run(inputs)?;
 
-            // Extract logits in a scoped borrow, then release before remove().
-            let next_token = {
+            // Extract last-position logits in a scoped borrow, then release before remove().
+            let last_logits = {
                 let logits = decoder_outputs
                     .get("logits")
                     .ok_or_else(|| TranscribeError::Inference("Missing logits output".into()))?
@@ -223,18 +232,13 @@ impl CohereModel {
                     .into_dimensionality::<Ix3>()
                     .map_err(|e| TranscribeError::Inference(e.to_string()))?;
                 let last_pos = logits.shape()[1].saturating_sub(1);
-                logits
-                    .slice(ndarray::s![0, last_pos, ..])
-                    .iter()
-                    .enumerate()
-                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                    .map(|(idx, _)| idx as i64)
-                    .unwrap_or(self.eos_id)
+                logits.slice(ndarray::s![0, last_pos, ..]).to_vec()
             };
 
-            if next_token == self.eos_id {
-                break;
-            }
+            let next_token = match greedy.next_token(&last_logits) {
+                Some(t) => t,
+                None => break,
+            };
 
             generated_ids.push(next_token);
             current_tokens = vec![next_token];
@@ -245,7 +249,7 @@ impl CohereModel {
             self_v_cache = remove_output(&mut decoder_outputs, "out_n_layer_self_v_cache")?;
         }
 
-        Ok(self.decode_ids(&generated_ids[prompt_ids.len()..]))
+        Ok(self.decode_ids(&generated_ids))
     }
 
     fn build_prompt_ids(&self, language: Option<&str>) -> Vec<i64> {
@@ -295,7 +299,11 @@ impl CohereModel {
     }
 
     fn decoder_input_name(&self, preferred: &str, fallbacks: &[&str]) -> String {
-        if self.decoder_input_names.iter().any(|name| name == preferred) {
+        if self
+            .decoder_input_names
+            .iter()
+            .any(|name| name == preferred)
+        {
             return preferred.to_string();
         }
 

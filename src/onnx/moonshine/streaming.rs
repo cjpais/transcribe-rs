@@ -7,6 +7,7 @@ use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 
+use crate::decode::GreedyDecoder;
 use crate::onnx::session;
 use crate::onnx::Quantization;
 use crate::{
@@ -714,11 +715,11 @@ impl StreamingModel {
         Ok(outputs)
     }
 
-    fn decode_step_greedy(
+    fn decode_step_logits(
         &mut self,
         state: &mut StreamingState,
         token: i64,
-    ) -> Result<i64, TranscribeError> {
+    ) -> Result<Vec<f32>, TranscribeError> {
         let vocab_size = self.config.vocab_size;
         let outputs = self.run_decoder(state, token)?;
 
@@ -728,18 +729,7 @@ impl StreamingModel {
             .try_extract_array::<f32>()?;
 
         let logits_data = logits.as_slice().unwrap();
-        let vocab = &logits_data[..vocab_size];
-
-        let mut best_idx = 0u32;
-        let mut best_val = vocab[0];
-        for (i, &v) in vocab.iter().enumerate().skip(1) {
-            if v > best_val {
-                best_val = v;
-                best_idx = i as u32;
-            }
-        }
-
-        Ok(best_idx as i64)
+        Ok(logits_data[..vocab_size].to_vec())
     }
 
     fn generate(
@@ -771,15 +761,17 @@ impl StreamingModel {
             }
         };
 
+        let mut greedy = GreedyDecoder::new(self.config.eos_id);
         let mut tokens: Vec<i64> = Vec::new();
         let mut current_token = self.config.bos_id;
 
         for _step in 0..max_tokens {
-            let next_token = self.decode_step_greedy(&mut state, current_token)?;
+            let logits = self.decode_step_logits(&mut state, current_token)?;
 
-            if next_token == self.config.eos_id {
-                break;
-            }
+            let next_token = match greedy.next_token(&logits) {
+                Some(t) => t,
+                None => break,
+            };
 
             tokens.push(next_token);
             current_token = next_token;

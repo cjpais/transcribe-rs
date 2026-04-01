@@ -4,6 +4,7 @@ use ort::value::ValueType;
 use ort::value::{DynValue, Tensor};
 
 use super::vocab::Vocab;
+use crate::decode::GreedyDecoder;
 use crate::TranscribeError;
 
 pub fn decode_autoregressive(
@@ -26,6 +27,7 @@ pub fn decode_autoregressive(
     let mut decoder_mems: DynValue = Tensor::from_array(empty_cache)?.into_dyn();
 
     let eos_id = vocab.eos_token_id();
+    let mut greedy = GreedyDecoder::new(eos_id);
     let mut all_tokens = prompt_tokens;
 
     // Limit decode steps so total tokens (prompt + generated) stays within
@@ -58,7 +60,7 @@ pub fn decode_autoregressive(
         ])?;
 
         // Extract logits in a scoped borrow, then release before remove()
-        let next_token = {
+        let last_logits = {
             let (logits_shape, logits_data) =
                 outputs["logits"].try_extract_tensor::<f32>().map_err(|e| {
                     TranscribeError::Inference(format!("Failed to extract logits: {e}"))
@@ -68,17 +70,18 @@ pub fn decode_autoregressive(
             let vocab_size = logits_shape[2] as usize;
 
             let last_step_offset = (seq_len - 1) * vocab_size;
-            let last_logits = &logits_data[last_step_offset..last_step_offset + vocab_size];
+            logits_data[last_step_offset..last_step_offset + vocab_size].to_vec()
+        };
 
-            argmax(last_logits) as i64
+        let next_token = match greedy.next_token(&last_logits) {
+            Some(t) => t,
+            None => {
+                log::debug!("Decode stopped at step {}", step);
+                break;
+            }
         };
 
         log::debug!("Step {}: predicted token ID {}", step, next_token);
-
-        if next_token == eos_id {
-            log::debug!("EOS token reached at step {}", step);
-            break;
-        }
 
         all_tokens.push(next_token);
 
@@ -127,29 +130,5 @@ fn extract_decoder_mems_shape(decoder: &Session) -> Result<(usize, usize), Trans
             "decoder_mems input is not a tensor: {:?}",
             other
         ))),
-    }
-}
-
-fn argmax(slice: &[f32]) -> usize {
-    let mut max_idx = 0;
-    let mut max_val = f32::NEG_INFINITY;
-    for (i, &v) in slice.iter().enumerate() {
-        if v > max_val {
-            max_val = v;
-            max_idx = i;
-        }
-    }
-    max_idx
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_argmax() {
-        assert_eq!(argmax(&[1.0, 3.0, 2.0]), 1);
-        assert_eq!(argmax(&[-1.0, -3.0, -0.5]), 2);
-        assert_eq!(argmax(&[5.0]), 0);
     }
 }
