@@ -1,6 +1,6 @@
 [package]
 name = "transcribe-rs"
-version = "0.3.5"
+version = "0.3.6"
 build = "build.rs"
 edition = "2021"
 description = "A simple library to help you transcribe audio"
