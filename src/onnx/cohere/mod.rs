@@ -23,8 +23,8 @@ const MAX_SEQ_LEN: usize = 1024;
 const DEFAULT_MAX_NEW_TOKENS: usize = 512;
 
 const CAPABILITIES: ModelCapabilities = ModelCapabilities {
-    name: "Cohere INT4",
-    engine_id: "cohere_int4",
+    name: "Cohere",
+    engine_id: "cohere",
     sample_rate: SAMPLE_RATE,
     languages: &["en"],
     supports_timestamps: false,
@@ -357,46 +357,42 @@ fn resolve_model_file(
 
 fn encoder_candidates(quantization: &Quantization) -> &'static [&'static str] {
     match quantization {
+        Quantization::Int4 => &[
+            "cohere-encoder.int4.onnx",
+            "encoder_model.int4.onnx",
+        ],
         Quantization::Int8 => &[
             "cohere-encoder.int8.onnx",
             "encoder_model.int8.onnx",
-            "cohere-encoder.int4.onnx",
-            "encoder_model.onnx",
         ],
         Quantization::FP16 => &[
-            "encoder_model_fp16.onnx",
             "cohere-encoder.fp16.onnx",
-            "cohere-encoder.int4.onnx",
-            "encoder_model.onnx",
+            "encoder_model_fp16.onnx",
         ],
         Quantization::FP32 => &[
-            "cohere-encoder.int4.onnx",
-            "encoder_model.onnx",
             "cohere-encoder.onnx",
-            "cohere-encoder.int8.onnx",
+            "encoder_model.onnx",
         ],
     }
 }
 
 fn decoder_candidates(quantization: &Quantization) -> &'static [&'static str] {
     match quantization {
+        Quantization::Int4 => &[
+            "cohere-decoder.int4.onnx",
+            "decoder_model_merged.int4.onnx",
+        ],
         Quantization::Int8 => &[
             "cohere-decoder.int8.onnx",
             "decoder_model_merged.int8.onnx",
-            "cohere-decoder.int4.onnx",
-            "decoder_model_merged.onnx",
         ],
         Quantization::FP16 => &[
-            "decoder_model_merged_fp16.onnx",
             "cohere-decoder.fp16.onnx",
-            "cohere-decoder.int4.onnx",
-            "decoder_model_merged.onnx",
+            "decoder_model_merged_fp16.onnx",
         ],
         Quantization::FP32 => &[
-            "cohere-decoder.int4.onnx",
-            "decoder_model_merged.onnx",
             "cohere-decoder.onnx",
-            "cohere-decoder.int8.onnx",
+            "decoder_model_merged.onnx",
         ],
     }
 }
