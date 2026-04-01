@@ -65,3 +65,39 @@ fn test_cohere_german() {
         result.text
     );
 }
+
+#[test]
+fn test_cohere_chinese() {
+    let model_path = PathBuf::from("models/cohere-int4");
+    let audio_path = PathBuf::from("samples/chinese.wav");
+
+    if !common::require_paths(&[&model_path, &audio_path]) {
+        return;
+    }
+
+    let mut model =
+        CohereModel::load(&model_path, &Quantization::Int4).expect("Failed to load Cohere model");
+
+    let result = model
+        .transcribe_file(
+            &audio_path,
+            &transcribe_rs::TranscribeOptions {
+                language: Some("zh".into()),
+                ..Default::default()
+            },
+        )
+        .expect("Failed to transcribe Chinese audio with Cohere model");
+
+    println!("Chinese transcription: {}", result.text);
+    assert!(
+        !result.text.trim().is_empty(),
+        "Cohere Chinese transcription should not be empty"
+    );
+
+    // Output should contain actual Chinese characters, not byte tokens like <0xE5>
+    assert!(
+        !result.text.contains("<0x"),
+        "Chinese transcription should not contain raw byte tokens, got: '{}'",
+        result.text
+    );
+}
