@@ -17,9 +17,11 @@ pub enum Quantization {
     FP32,
     FP16,
     Int8,
+    Int4,
 }
 
 pub mod canary;
+pub mod cohere;
 pub mod gigaam;
 pub mod moonshine;
 pub mod parakeet;

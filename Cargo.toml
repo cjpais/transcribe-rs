@@ -108,6 +108,10 @@ name = "canary"
 required-features = ["onnx"]
 
 [[example]]
+name = "cohere"
+required-features = ["onnx"]
+
+[[example]]
 name = "whisperfile"
 required-features = ["whisperfile"]
 
@@ -141,6 +145,10 @@ required-features = ["onnx"]
 
 [[test]]
 name = "canary"
+required-features = ["onnx"]
+
+[[test]]
+name = "cohere"
 required-features = ["onnx"]
 
 [[test]]

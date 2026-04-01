@@ -34,7 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         positional
             .get(1)
             .map(|s| s.as_str())
-            .unwrap_or("samples/jfk.wav"),
+            .unwrap_or("samples/dots.wav"),
     );
 
     let audio_duration = get_audio_duration(&wav_path)?;
