@@ -1,6 +1,6 @@
 [package]
 name = "transcribe-rs"
-version = "0.3.8"
+version = "0.3.9"
 build = "build.rs"
 edition = "2021"
 description = "A simple library to help you transcribe audio"
@@ -41,6 +41,7 @@ ort-directml = ["onnx", "ort/directml"]
 ort-rocm     = ["onnx", "ort/rocm"]
 ort-coreml   = ["onnx", "ort/coreml"]
 ort-webgpu   = ["onnx", "ort/webgpu"]
+ort-tracing  = ["onnx", "ort/tracing"]
 ort-accel    = ["ort-cuda", "ort-directml", "ort-rocm", "ort-coreml", "ort-webgpu"]
 
 # Convenience
