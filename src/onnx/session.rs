@@ -4,6 +4,8 @@ use ort::ep::CoreML;
 use ort::ep::DirectML;
 #[cfg(feature = "ort-rocm")]
 use ort::ep::ROCm;
+#[cfg(feature = "ort-tensorrt")]
+use ort::ep::TensorRT;
 #[cfg(feature = "ort-webgpu")]
 use ort::ep::WebGPU;
 use ort::ep::CPU;
@@ -31,6 +33,18 @@ fn execution_providers() -> Vec<ort::ep::ExecutionProviderDispatch> {
             #[cfg(not(feature = "ort-cuda"))]
             log::warn!(
                 "Accelerator set to CUDA but ort-cuda feature is not enabled; falling back to CPU"
+            );
+        }
+        OrtAccelerator::TensorRt => {
+            #[cfg(feature = "ort-tensorrt")]
+            {
+                eps.push(TensorRT::default().build());
+                // CUDA as fallback for ops TensorRT doesn't support
+                eps.push(CUDA::default().build());
+            }
+            #[cfg(not(feature = "ort-tensorrt"))]
+            log::warn!(
+                "Accelerator set to TensorRT but ort-tensorrt feature is not enabled; falling back to CPU"
             );
         }
         OrtAccelerator::DirectMl => {
@@ -71,6 +85,9 @@ fn execution_providers() -> Vec<ort::ep::ExecutionProviderDispatch> {
             // to opt in.
             // Ref: https://onnxruntime.ai/docs/execution-providers/DirectML-ExecutionProvider.html
             //      https://onnxruntime.ai/docs/execution-providers/WebGPU-ExecutionProvider.html
+            // TensorRT before CUDA so it gets first crack; CUDA handles unsupported ops.
+            #[cfg(feature = "ort-tensorrt")]
+            eps.push(TensorRT::default().build());
             #[cfg(feature = "ort-cuda")]
             eps.push(CUDA::default().build());
             #[cfg(feature = "ort-rocm")]

@@ -1,6 +1,6 @@
 [package]
 name = "transcribe-rs"
-version = "0.3.9"
+version = "0.3.10"
 build = "build.rs"
 edition = "2021"
 description = "A simple library to help you transcribe audio"
@@ -37,12 +37,13 @@ vad-silero = ["dep:ort", "dep:ndarray"]
 # Note: ort-cuda pulls in the CUDA execution provider, which adds ~800 MB+
 # to the ORT binary and requires a CUDA toolkit / cuDNN installation at runtime.
 ort-cuda     = ["onnx", "ort/cuda"]
+ort-tensorrt = ["ort-cuda", "ort/tensorrt"]
 ort-directml = ["onnx", "ort/directml"]
 ort-rocm     = ["onnx", "ort/rocm"]
 ort-coreml   = ["onnx", "ort/coreml"]
 ort-webgpu   = ["onnx", "ort/webgpu"]
 ort-tracing  = ["onnx", "ort/tracing"]
-ort-accel    = ["ort-cuda", "ort-directml", "ort-rocm", "ort-coreml", "ort-webgpu"]
+ort-accel    = ["ort-cuda", "ort-tensorrt", "ort-directml", "ort-rocm", "ort-coreml", "ort-webgpu"]
 
 # Convenience
 all = ["onnx", "whisper-cpp", "whisperfile", "openai"]
