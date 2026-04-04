@@ -6,7 +6,7 @@
 
 use std::fmt;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicI32, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, Ordering};
 
 use serde::{Deserialize, Serialize};
 
@@ -66,6 +66,39 @@ pub fn set_ort_accelerator(pref: OrtAccelerator) {
 /// Get the current ORT accelerator preference.
 pub fn get_ort_accelerator() -> OrtAccelerator {
     OrtAccelerator::from_u8(ORT_ACCELERATOR.load(Ordering::Relaxed))
+}
+
+static ORT_INTRA_THREADS: AtomicU8 = AtomicU8::new(0);
+
+/// Set the global ORT intra-op thread count.
+///
+/// Applies to all ORT sessions (encoder and decoder) unless overridden by
+/// an explicit thread count parameter. 0 means use the ORT default (all
+/// available cores). Call before loading models; already-loaded sessions
+/// are not affected.
+pub fn set_ort_intra_threads(count: u8) {
+    ORT_INTRA_THREADS.store(count, Ordering::Relaxed);
+}
+
+/// Get the current ORT intra-op thread count (0 = ORT default).
+pub fn get_ort_intra_threads() -> u8 {
+    ORT_INTRA_THREADS.load(Ordering::Relaxed)
+}
+
+static DECODER_GPU: AtomicBool = AtomicBool::new(false);
+
+/// Enable GPU execution providers for decoder sessions.
+///
+/// By default, decoder sessions use CPU-only with arena allocator because
+/// sequential execution makes GPU kernel launch overhead net-negative for
+/// per-token latency at batch size 1. Set to `true` for GPU benchmarking.
+pub fn set_decoder_gpu(enable: bool) {
+    DECODER_GPU.store(enable, Ordering::Relaxed);
+}
+
+/// Get whether decoder sessions should use GPU execution providers.
+pub fn get_decoder_gpu() -> bool {
+    DECODER_GPU.load(Ordering::Relaxed)
 }
 
 impl OrtAccelerator {
@@ -303,6 +336,8 @@ mod tests {
         fn drop(&mut self) {
             set_ort_accelerator(OrtAccelerator::Auto);
             set_whisper_accelerator(WhisperAccelerator::Auto);
+            set_ort_intra_threads(0);
+            set_decoder_gpu(false);
             set_whisper_gpu_device(GPU_DEVICE_AUTO);
         }
     }
@@ -408,6 +443,22 @@ mod tests {
     #[test]
     fn ort_from_u8_invalid_returns_auto() {
         assert_eq!(OrtAccelerator::from_u8(255), OrtAccelerator::Auto);
+    }
+
+    // -- ORT thread count tests --
+
+    #[test]
+    fn ort_intra_threads_default_is_zero() {
+        let _g = AccelGuard::new();
+        set_ort_intra_threads(0);
+        assert_eq!(get_ort_intra_threads(), 0);
+    }
+
+    #[test]
+    fn ort_intra_threads_roundtrip() {
+        let _g = AccelGuard::new();
+        set_ort_intra_threads(6);
+        assert_eq!(get_ort_intra_threads(), 6);
     }
 
     // -- Whisper tests --

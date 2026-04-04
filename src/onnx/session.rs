@@ -113,6 +113,19 @@ fn requires_sequential_session() -> bool {
         || (pref == OrtAccelerator::WebGpu && cfg!(feature = "ort-webgpu"))
 }
 
+/// Resolve intra-op thread count: explicit param > global setting > ORT default.
+fn resolve_intra_threads(explicit: usize) -> Option<usize> {
+    if explicit > 0 {
+        return Some(explicit);
+    }
+    let global = crate::accel::get_ort_intra_threads();
+    if global > 0 {
+        Some(global as usize)
+    } else {
+        None
+    }
+}
+
 /// Internal session builder with full control over threading and EP selection.
 fn build_session(
     path: &Path,
@@ -122,10 +135,9 @@ fn build_session(
     let mut builder =
         Session::builder()?.with_optimization_level(GraphOptimizationLevel::Level3)?;
 
-    if let Some(n) = intra_threads {
-        if n > 0 {
-            builder = builder.with_intra_threads(n)?;
-        }
+    let threads = resolve_intra_threads(intra_threads.unwrap_or(0));
+    if let Some(n) = threads {
+        builder = builder.with_intra_threads(n)?;
     }
 
     // DirectML and WebGPU require parallel_execution(false) and memory_pattern(false)
@@ -250,4 +262,66 @@ pub fn read_metadata_float_vec(
         }
         None => Ok(None),
     }
+}
+
+/// Session for autoregressive decoders: sequential execution, configurable
+/// intra-op threads.
+///
+/// By default forces CPU-only with arena allocator — sequential execution makes
+/// GPU kernel launch overhead net-negative for per-token latency at batch size 1.
+///
+/// Call [`crate::set_decoder_gpu(true)`] to use the global accelerator preference
+/// for decoder sessions (for GPU benchmarking).
+///
+/// Thread count resolution:
+/// 1. `num_threads` if > 0
+/// 2. Global `set_ort_intra_threads` if > 0
+/// 3. ORT default (all cores)
+pub fn create_decoder_session(path: &Path, num_threads: usize) -> Result<Session, ort::Error> {
+    let use_gpu = crate::accel::get_decoder_gpu();
+
+    let threads = resolve_intra_threads(num_threads);
+
+    let mut builder = Session::builder()?
+        .with_optimization_level(GraphOptimizationLevel::Level3)?
+        .with_parallel_execution(false)?;
+    if let Some(n) = threads {
+        builder = builder.with_intra_threads(n)?;
+    }
+
+    let session = if use_gpu {
+        log::info!("Decoder session using global accelerator (set_decoder_gpu=true)");
+        builder
+            .with_execution_providers(execution_providers())?
+            .commit_from_file(path)?
+    } else {
+        if get_ort_accelerator() != OrtAccelerator::CpuOnly {
+            log::info!(
+                "Decoder session uses CPU-only (sequential execution); \
+                 call set_decoder_gpu(true) to override"
+            );
+        }
+        builder
+            .with_execution_providers([CPUExecutionProvider::default()
+                .with_arena_allocator(true)
+                .build()])?
+            .commit_from_file(path)?
+    };
+
+    for input in session.inputs() {
+        log::info!(
+            "Model input: name={}, type={:?}",
+            input.name(),
+            input.dtype()
+        );
+    }
+    for output in session.outputs() {
+        log::info!(
+            "Model output: name={}, type={:?}",
+            output.name(),
+            output.dtype()
+        );
+    }
+
+    Ok(session)
 }
