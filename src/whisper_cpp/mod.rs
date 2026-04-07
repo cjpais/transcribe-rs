@@ -220,6 +220,7 @@ impl WhisperEngine {
         full_params.set_suppress_blank(params.suppress_blank);
         full_params.set_suppress_nst(params.suppress_non_speech_tokens);
         full_params.set_no_speech_thold(params.no_speech_thold);
+        full_params.set_no_context(true);
         if params.n_threads > 0 {
             full_params.set_n_threads(params.n_threads);
         }
