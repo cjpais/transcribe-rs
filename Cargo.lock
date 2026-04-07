@@ -2020,7 +2020,7 @@ dependencies = [
 
 [[package]]
 name = "transcribe-rs"
-version = "0.3.10"
+version = "0.3.11"
 dependencies = [
  "async-openai",
  "async-trait",
