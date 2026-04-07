@@ -41,8 +41,12 @@ ort-directml = ["onnx", "ort/directml"]
 ort-rocm     = ["onnx", "ort/rocm"]
 ort-coreml   = ["onnx", "ort/coreml"]
 ort-webgpu   = ["onnx", "ort/webgpu"]
+ort-xnnpack  = ["onnx", "ort/xnnpack"]
 ort-tracing  = ["onnx", "ort/tracing"]
-ort-accel    = ["ort-cuda", "ort-directml", "ort-rocm", "ort-coreml", "ort-webgpu"]
+ort-accel    = ["ort-cuda", "ort-directml", "ort-rocm", "ort-coreml", "ort-webgpu", "ort-xnnpack"]
+
+# Burn-based Parakeet (wgpu GPU inference, manual implementation)
+burn-parakeet = ["audio-features", "dep:burn", "dep:burn-store", "dep:safetensors", "dep:memmap2", "dep:regex", "dep:once_cell"]
 
 # Convenience
 all = ["onnx", "whisper-cpp", "whisperfile", "openai"]
@@ -78,6 +82,12 @@ async-trait = { version = "0.1.89", optional = true }
 
 # Whisper (GPU features controlled by whisper-metal / whisper-vulkan / whisper-cuda feature flags)
 whisper-rs = { version = "0.16.0", optional = true }
+
+# Burn (wgpu GPU inference)
+burn = { version = "0.21.0-pre", features = ["wgpu", "ndarray"], optional = true }
+burn-store = { version = "0.21.0-pre", features = ["std", "safetensors"], optional = true }
+safetensors = { version = "0.4", optional = true }
+memmap2 = { version = "0.9", optional = true }
 
 # Examples with required features
 [[example]]
@@ -119,6 +129,10 @@ required-features = ["whisperfile"]
 [[example]]
 name = "openai"
 required-features = ["openai"]
+
+[[example]]
+name = "burn_parakeet"
+required-features = ["burn-parakeet"]
 
 [dev-dependencies]
 once_cell = "1.21.3"
@@ -167,3 +181,7 @@ required-features = ["onnx", "vad-silero"]
 [[test]]
 name = "vad_silero"
 required-features = ["vad-silero"]
+
+[[test]]
+name = "burn_parakeet"
+required-features = ["burn-parakeet"]

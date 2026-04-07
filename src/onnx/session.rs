@@ -6,6 +6,8 @@ use ort::ep::DirectML;
 use ort::ep::ROCm;
 #[cfg(feature = "ort-webgpu")]
 use ort::ep::WebGPU;
+#[cfg(feature = "ort-xnnpack")]
+use ort::ep::XNNPACK;
 use ort::ep::CPU;
 #[cfg(feature = "ort-cuda")]
 use ort::ep::CUDA;
@@ -63,6 +65,27 @@ fn execution_providers() -> Vec<ort::ep::ExecutionProviderDispatch> {
                 "Accelerator set to WebGPU but ort-webgpu feature is not enabled; falling back to CPU"
             );
         }
+        OrtAccelerator::Xnnpack => {
+            #[cfg(feature = "ort-xnnpack")]
+            {
+                // XNNPACK uses its own threadpool. Configure it to use the
+                // ORT intra_threads value (or all logical cores if unset).
+                // The session-level intra_threads is forced to 1 in
+                // build_session() when XNNPACK is selected.
+                let n = std::thread::available_parallelism()
+                    .map(|n| n.get())
+                    .unwrap_or(1);
+                if let Some(nz) = core::num::NonZeroUsize::new(n) {
+                    eps.push(XNNPACK::default().with_intra_op_num_threads(nz).build());
+                } else {
+                    eps.push(XNNPACK::default().build());
+                }
+            }
+            #[cfg(not(feature = "ort-xnnpack"))]
+            log::warn!(
+                "Accelerator set to XNNPACK but ort-xnnpack feature is not enabled; falling back to CPU"
+            );
+        }
         OrtAccelerator::Auto => {
             // Add compiled-in GPU EPs in priority order.
             // DirectML and WebGPU are excluded from Auto because they require
@@ -96,6 +119,14 @@ fn requires_sequential_session() -> bool {
         || (pref == OrtAccelerator::WebGpu && cfg!(feature = "ort-webgpu"))
 }
 
+/// Returns true if the selected execution provider is XNNPACK (and the
+/// feature is compiled-in). XNNPACK uses its own threadpool, so the session
+/// intra-op threadpool should be reduced to 1 with spinning disabled.
+fn is_xnnpack_active() -> bool {
+    let pref = get_ort_accelerator();
+    pref == OrtAccelerator::Xnnpack && cfg!(feature = "ort-xnnpack")
+}
+
 /// Internal session builder with full control over threading and EP selection.
 fn build_session(
     path: &Path,
@@ -105,7 +136,13 @@ fn build_session(
     let mut builder =
         Session::builder()?.with_optimization_level(GraphOptimizationLevel::Level3)?;
 
-    if let Some(n) = intra_threads {
+    if is_xnnpack_active() {
+        // XNNPACK manages its own threadpool. Disable the session intra-op
+        // threadpool spinning and force a single intra-op thread to avoid
+        // contention. See ort::ep::XNNPACK docs.
+        builder = builder.with_intra_op_spinning(false)?;
+        builder = builder.with_intra_threads(1)?;
+    } else if let Some(n) = intra_threads {
         if n > 0 {
             builder = builder.with_intra_threads(n)?;
         }

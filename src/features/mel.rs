@@ -194,7 +194,7 @@ fn compute_mel_spectrogram(
 }
 
 /// Generate a window function of the given type and length.
-fn make_window(window_type: WindowType, length: usize) -> Vec<f32> {
+pub(crate) fn make_window(window_type: WindowType, length: usize) -> Vec<f32> {
     match window_type {
         WindowType::Hamming => (0..length)
             .map(|i| 0.54 - 0.46 * (2.0 * PI * i as f32 / (length as f32 - 1.0)).cos())
@@ -206,7 +206,7 @@ fn make_window(window_type: WindowType, length: usize) -> Vec<f32> {
 }
 
 /// Compute mel filterbank matrix of shape [num_mels, num_fft_bins].
-fn mel_filterbank(
+pub(crate) fn mel_filterbank(
     num_mels: usize,
     fft_size: usize,
     sample_rate: f32,
@@ -250,10 +250,10 @@ fn mel_filterbank(
     banks
 }
 
-fn hz_to_mel(hz: f32) -> f32 {
+pub(crate) fn hz_to_mel(hz: f32) -> f32 {
     1127.0 * (1.0 + hz / 700.0).ln()
 }
 
-fn mel_to_hz(mel: f32) -> f32 {
+pub(crate) fn mel_to_hz(mel: f32) -> f32 {
     700.0 * ((mel / 1127.0).exp() - 1.0)
 }

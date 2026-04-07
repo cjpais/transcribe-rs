@@ -106,6 +106,9 @@ pub mod onnx;
 pub mod transcriber;
 pub mod vad;
 
+#[cfg(feature = "burn-parakeet")]
+pub mod burn_parakeet;
+
 #[cfg(feature = "whisper-cpp")]
 pub mod whisper_cpp;
 #[cfg(feature = "whisperfile")]

@@ -1,6 +1,6 @@
 mod cmvn;
 mod lfr;
-mod mel;
+pub(crate) mod mel;
 
 pub use cmvn::apply_cmvn;
 pub use lfr::apply_lfr;

@@ -49,6 +49,10 @@ pub enum OrtAccelerator {
     /// WebGPU via Dawn (Windows, Linux, WebAssembly).
     #[serde(rename = "webgpu")]
     WebGpu = 6,
+    /// XNNPACK CPU acceleration (ARM, x86_64). Optimised for quantised
+    /// Conv/Gemm/MatMul ops; uses its own threadpool.
+    #[serde(rename = "xnnpack")]
+    Xnnpack = 7,
 }
 
 static ORT_ACCELERATOR: AtomicU8 = AtomicU8::new(OrtAccelerator::Auto as u8);
@@ -89,6 +93,9 @@ impl OrtAccelerator {
         #[cfg(feature = "ort-webgpu")]
         v.push(OrtAccelerator::WebGpu);
 
+        #[cfg(feature = "ort-xnnpack")]
+        v.push(OrtAccelerator::Xnnpack);
+
         v
     }
 
@@ -101,6 +108,7 @@ impl OrtAccelerator {
             4 => Self::Rocm,
             5 => Self::CoreMl,
             6 => Self::WebGpu,
+            7 => Self::Xnnpack,
             _ => Self::Auto,
         }
     }
@@ -122,6 +130,7 @@ impl fmt::Display for OrtAccelerator {
             Self::Rocm => "rocm",
             Self::CoreMl => "coreml",
             Self::WebGpu => "webgpu",
+            Self::Xnnpack => "xnnpack",
         };
         f.write_str(s)
     }
@@ -139,6 +148,7 @@ impl FromStr for OrtAccelerator {
             "rocm" => Ok(Self::Rocm),
             "coreml" | "core_ml" => Ok(Self::CoreMl),
             "webgpu" | "web_gpu" => Ok(Self::WebGpu),
+            "xnnpack" => Ok(Self::Xnnpack),
             other => Err(format!("unknown ORT accelerator: {other}")),
         }
     }
@@ -326,6 +336,7 @@ mod tests {
             OrtAccelerator::Rocm,
             OrtAccelerator::CoreMl,
             OrtAccelerator::WebGpu,
+            OrtAccelerator::Xnnpack,
         ] {
             let s = pref.to_string();
             let parsed: OrtAccelerator = s.parse().unwrap();
@@ -364,6 +375,7 @@ mod tests {
             (OrtAccelerator::Rocm, "\"rocm\""),
             (OrtAccelerator::CoreMl, "\"coreml\""),
             (OrtAccelerator::WebGpu, "\"webgpu\""),
+            (OrtAccelerator::Xnnpack, "\"xnnpack\""),
         ] {
             let json = serde_json::to_string(&pref).unwrap();
             assert_eq!(json, expected, "serialize {:?}", pref);
