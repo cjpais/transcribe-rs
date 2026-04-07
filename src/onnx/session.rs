@@ -4,6 +4,8 @@ use ort::ep::CoreML;
 use ort::ep::DirectML;
 #[cfg(feature = "ort-rocm")]
 use ort::ep::ROCm;
+#[cfg(feature = "ort-tensorrt")]
+use ort::ep::TensorRT;
 #[cfg(feature = "ort-webgpu")]
 use ort::ep::WebGPU;
 #[cfg(feature = "ort-xnnpack")]
@@ -33,6 +35,18 @@ fn execution_providers() -> Vec<ort::ep::ExecutionProviderDispatch> {
             #[cfg(not(feature = "ort-cuda"))]
             log::warn!(
                 "Accelerator set to CUDA but ort-cuda feature is not enabled; falling back to CPU"
+            );
+        }
+        OrtAccelerator::TensorRt => {
+            #[cfg(feature = "ort-tensorrt")]
+            {
+                eps.push(TensorRT::default().build());
+                // CUDA as fallback for ops TensorRT doesn't support
+                eps.push(CUDA::default().build());
+            }
+            #[cfg(not(feature = "ort-tensorrt"))]
+            log::warn!(
+                "Accelerator set to TensorRT but ort-tensorrt feature is not enabled; falling back to CPU"
             );
         }
         OrtAccelerator::DirectMl => {
@@ -68,10 +82,10 @@ fn execution_providers() -> Vec<ort::ep::ExecutionProviderDispatch> {
         OrtAccelerator::Xnnpack => {
             #[cfg(feature = "ort-xnnpack")]
             {
-                // XNNPACK uses its own threadpool. Configure it to use the
-                // ORT intra_threads value (or all logical cores if unset).
-                // The session-level intra_threads is forced to 1 in
-                // build_session() when XNNPACK is selected.
+                // XNNPACK manages its own threadpool. Configure it with the
+                // available logical core count; the session-level intra-op
+                // pool is forced to 1 in build_session() when XNNPACK is
+                // active to avoid contention.
                 let n = std::thread::available_parallelism()
                     .map(|n| n.get())
                     .unwrap_or(1);
@@ -94,6 +108,9 @@ fn execution_providers() -> Vec<ort::ep::ExecutionProviderDispatch> {
             // to opt in.
             // Ref: https://onnxruntime.ai/docs/execution-providers/DirectML-ExecutionProvider.html
             //      https://onnxruntime.ai/docs/execution-providers/WebGPU-ExecutionProvider.html
+            // TensorRT before CUDA so it gets first crack; CUDA handles unsupported ops.
+            #[cfg(feature = "ort-tensorrt")]
+            eps.push(TensorRT::default().build());
             #[cfg(feature = "ort-cuda")]
             eps.push(CUDA::default().build());
             #[cfg(feature = "ort-rocm")]
@@ -119,9 +136,9 @@ fn requires_sequential_session() -> bool {
         || (pref == OrtAccelerator::WebGpu && cfg!(feature = "ort-webgpu"))
 }
 
-/// Returns true if the selected execution provider is XNNPACK (and the
-/// feature is compiled-in). XNNPACK uses its own threadpool, so the session
-/// intra-op threadpool should be reduced to 1 with spinning disabled.
+/// Returns true if the XNNPACK EP is selected and compiled in. XNNPACK runs
+/// its own threadpool, so the session intra-op pool should be reduced to a
+/// single non-spinning thread to avoid contention.
 fn is_xnnpack_active() -> bool {
     let pref = get_ort_accelerator();
     pref == OrtAccelerator::Xnnpack && cfg!(feature = "ort-xnnpack")
@@ -137,9 +154,8 @@ fn build_session(
         Session::builder()?.with_optimization_level(GraphOptimizationLevel::Level3)?;
 
     if is_xnnpack_active() {
-        // XNNPACK manages its own threadpool. Disable the session intra-op
-        // threadpool spinning and force a single intra-op thread to avoid
-        // contention. See ort::ep::XNNPACK docs.
+        // See ort::ep::XNNPACK docs: disable session intra-op spinning and
+        // force a single intra-op thread when XNNPACK is the active EP.
         builder = builder.with_intra_op_spinning(false)?;
         builder = builder.with_intra_threads(1)?;
     } else if let Some(n) = intra_threads {

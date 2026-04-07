@@ -38,6 +38,9 @@ pub enum OrtAccelerator {
     CpuOnly = 1,
     /// NVIDIA CUDA (requires `ort-cuda` feature; adds ~800 MB to binary size).
     Cuda = 2,
+    /// NVIDIA TensorRT (requires `ort-tensorrt` feature; builds on CUDA with optimised graph compilation).
+    #[serde(rename = "tensorrt", alias = "tensor_rt")]
+    TensorRt = 7,
     /// Microsoft DirectML (Windows).
     #[serde(rename = "directml", alias = "direct_ml")]
     DirectMl = 3,
@@ -49,10 +52,10 @@ pub enum OrtAccelerator {
     /// WebGPU via Dawn (Windows, Linux, WebAssembly).
     #[serde(rename = "webgpu")]
     WebGpu = 6,
-    /// XNNPACK CPU acceleration (ARM, x86_64). Optimised for quantised
-    /// Conv/Gemm/MatMul ops; uses its own threadpool.
+    /// XNNPACK CPU acceleration (ARM, x86_64). Optimised for Conv/Gemm/MatMul
+    /// kernels; uses its own threadpool independent of the session intra-op pool.
     #[serde(rename = "xnnpack")]
-    Xnnpack = 7,
+    Xnnpack = 8,
 }
 
 static ORT_ACCELERATOR: AtomicU8 = AtomicU8::new(OrtAccelerator::Auto as u8);
@@ -81,6 +84,9 @@ impl OrtAccelerator {
         #[cfg(feature = "ort-cuda")]
         v.push(OrtAccelerator::Cuda);
 
+        #[cfg(feature = "ort-tensorrt")]
+        v.push(OrtAccelerator::TensorRt);
+
         #[cfg(feature = "ort-directml")]
         v.push(OrtAccelerator::DirectMl);
 
@@ -108,7 +114,8 @@ impl OrtAccelerator {
             4 => Self::Rocm,
             5 => Self::CoreMl,
             6 => Self::WebGpu,
-            7 => Self::Xnnpack,
+            7 => Self::TensorRt,
+            8 => Self::Xnnpack,
             _ => Self::Auto,
         }
     }
@@ -126,6 +133,7 @@ impl fmt::Display for OrtAccelerator {
             Self::Auto => "auto",
             Self::CpuOnly => "cpu",
             Self::Cuda => "cuda",
+            Self::TensorRt => "tensorrt",
             Self::DirectMl => "directml",
             Self::Rocm => "rocm",
             Self::CoreMl => "coreml",
@@ -144,6 +152,7 @@ impl FromStr for OrtAccelerator {
             "auto" => Ok(Self::Auto),
             "cpu" | "cpu_only" | "cpuonly" => Ok(Self::CpuOnly),
             "cuda" => Ok(Self::Cuda),
+            "tensorrt" | "trt" | "tensor_rt" => Ok(Self::TensorRt),
             "directml" | "dml" => Ok(Self::DirectMl),
             "rocm" => Ok(Self::Rocm),
             "coreml" | "core_ml" => Ok(Self::CoreMl),
@@ -332,6 +341,7 @@ mod tests {
             OrtAccelerator::Auto,
             OrtAccelerator::CpuOnly,
             OrtAccelerator::Cuda,
+            OrtAccelerator::TensorRt,
             OrtAccelerator::DirectMl,
             OrtAccelerator::Rocm,
             OrtAccelerator::CoreMl,
@@ -358,6 +368,10 @@ mod tests {
             "cpu_only".parse::<OrtAccelerator>().unwrap(),
             OrtAccelerator::CpuOnly
         );
+        assert_eq!(
+            "trt".parse::<OrtAccelerator>().unwrap(),
+            OrtAccelerator::TensorRt
+        );
     }
 
     #[test]
@@ -371,6 +385,7 @@ mod tests {
             (OrtAccelerator::Auto, "\"auto\""),
             (OrtAccelerator::CpuOnly, "\"cpu\""),
             (OrtAccelerator::Cuda, "\"cuda\""),
+            (OrtAccelerator::TensorRt, "\"tensorrt\""),
             (OrtAccelerator::DirectMl, "\"directml\""),
             (OrtAccelerator::Rocm, "\"rocm\""),
             (OrtAccelerator::CoreMl, "\"coreml\""),
@@ -392,6 +407,8 @@ mod tests {
         assert_eq!(old_cpu, OrtAccelerator::CpuOnly);
         let old_dml: OrtAccelerator = serde_json::from_str("\"direct_ml\"").unwrap();
         assert_eq!(old_dml, OrtAccelerator::DirectMl);
+        let old_trt: OrtAccelerator = serde_json::from_str("\"tensor_rt\"").unwrap();
+        assert_eq!(old_trt, OrtAccelerator::TensorRt);
     }
 
     #[test]
