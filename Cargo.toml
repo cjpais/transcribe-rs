@@ -42,8 +42,9 @@ ort-directml = ["onnx", "ort/directml"]
 ort-rocm     = ["onnx", "ort/rocm"]
 ort-coreml   = ["onnx", "ort/coreml"]
 ort-webgpu   = ["onnx", "ort/webgpu"]
+ort-xnnpack  = ["onnx", "ort/xnnpack"]
 ort-tracing  = ["onnx", "ort/tracing"]
-ort-accel    = ["ort-cuda", "ort-tensorrt", "ort-directml", "ort-rocm", "ort-coreml", "ort-webgpu"]
+ort-accel    = ["ort-cuda", "ort-tensorrt", "ort-directml", "ort-rocm", "ort-coreml", "ort-webgpu", "ort-xnnpack"]
 
 # Convenience
 all = ["onnx", "whisper-cpp", "whisperfile", "openai"]
