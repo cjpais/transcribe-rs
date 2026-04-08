@@ -110,6 +110,10 @@ pub struct WhisperInferenceParams {
 
     /// Initial prompt to provide context to the model.
     pub initial_prompt: Option<String>,
+
+    /// Start each decode with a clean prompt (whisper.cpp's `prompt_past`).
+    /// Default `true` suits push-to-talk; set `false` for continuous speech.
+    pub no_context: bool,
 }
 
 impl Default for WhisperInferenceParams {
@@ -126,6 +130,7 @@ impl Default for WhisperInferenceParams {
             no_speech_thold: 0.2,
             n_threads: 0,
             initial_prompt: None,
+            no_context: true,
         }
     }
 }
@@ -220,6 +225,7 @@ impl WhisperEngine {
         full_params.set_suppress_blank(params.suppress_blank);
         full_params.set_suppress_nst(params.suppress_non_speech_tokens);
         full_params.set_no_speech_thold(params.no_speech_thold);
+        full_params.set_no_context(params.no_context);
         if params.n_threads > 0 {
             full_params.set_n_threads(params.n_threads);
         }

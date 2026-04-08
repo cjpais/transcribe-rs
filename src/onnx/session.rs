@@ -8,11 +8,11 @@ use ort::ep::ROCm;
 use ort::ep::TensorRT;
 #[cfg(feature = "ort-webgpu")]
 use ort::ep::WebGPU;
-#[cfg(feature = "ort-xnnpack")]
-use ort::ep::XNNPACK;
 use ort::ep::CPU;
 #[cfg(feature = "ort-cuda")]
 use ort::ep::CUDA;
+#[cfg(feature = "ort-xnnpack")]
+use ort::ep::XNNPACK;
 
 use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
