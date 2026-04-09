@@ -24,5 +24,8 @@ pub mod canary;
 pub mod cohere;
 pub mod gigaam;
 pub mod moonshine;
+pub mod paraformer;
 pub mod parakeet;
 pub mod sense_voice;
+pub mod zipformer_ctc;
+pub mod zipformer_transducer;
