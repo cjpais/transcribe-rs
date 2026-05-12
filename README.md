@@ -99,6 +99,8 @@ set_whisper_accelerator(WhisperAccelerator::CpuOnly); // force CPU
 
 Query which ORT accelerators are compiled in with `OrtAccelerator::available()`.
 
+**Note:** by default `onnx` and `vad-silero` download a prebuilt ONNX Runtime from pyke. To supply your own libonnxruntime.so (e.g. for CPUs without AVX), see `ONNX Runtime backend` under Models below.
+
 ## Usage by Engine
 
 ### Canary
@@ -403,6 +405,10 @@ models/giga-am-v3/
 | TinyVi | Vietnamese |
 | Base | English |
 | BaseEs | Spanish |
+
+### ONNX Runtime backend
+
+`onnx` and `vad-silero` use pyke's prebuilt ONNX Runtime by default. To supply your own `libonnxruntime.so` (e.g. for CPUs without AVX or externally-managed ONNX Runtime), enable `ort-load-dynamic` instead and set `ORT_DYLIB_PATH=/path/to/libonnxruntime.so` at runtime.
 
 ## Examples and Tests
 

@@ -14,7 +14,7 @@ default = []
 audio-features = ["dep:ndarray", "dep:rustfft"]
 
 # ONNX-based models (SenseVoice, GigaAM, Parakeet, Moonshine, Canary)
-onnx = ["audio-features", "dep:ort", "dep:base64", "dep:regex", "dep:once_cell"]
+onnx = ["audio-features", "dep:ort", "ort-download-binaries", "dep:base64", "dep:regex", "dep:once_cell"]
 
 # Whisper via whisper.cpp (CPU-only by default; add whisper-metal, whisper-vulkan, or whisper-cuda for GPU)
 whisper-cpp = ["dep:whisper-rs", "whisper-rs/raw-api"]
@@ -31,7 +31,7 @@ whisperfile = ["dep:ureq"]
 openai = ["dep:async-openai", "dep:tokio", "dep:async-trait"]
 
 # Silero neural VAD (requires silero_vad_v4.onnx model file)
-vad-silero = ["dep:ort", "dep:ndarray"]
+vad-silero = ["dep:ort", "ort-download-binaries", "dep:ndarray"]
 
 # --- ORT Accelerators ---
 # Note: ort-cuda pulls in the CUDA execution provider, which adds ~800 MB+
@@ -45,6 +45,10 @@ ort-webgpu   = ["onnx", "ort/webgpu"]
 ort-xnnpack  = ["onnx", "ort/xnnpack"]
 ort-tracing  = ["onnx", "ort/tracing"]
 ort-accel    = ["ort-cuda", "ort-tensorrt", "ort-directml", "ort-rocm", "ort-coreml", "ort-webgpu", "ort-xnnpack"]
+
+# Backend acquisition
+ort-download-binaries = ["ort/download-binaries", "ort/tls-native", "ort/copy-dylibs"]
+ort-load-dynamic = ["ort/load-dynamic"]
 
 # Convenience
 all = ["onnx", "whisper-cpp", "whisperfile", "openai"]
@@ -60,7 +64,7 @@ env_logger = "0.10.0"
 derive_builder = { version = "0.20.2" }
 
 # ONNX runtime
-ort = { version = "=2.0.0-rc.12", optional = true }
+ort = { version = "=2.0.0-rc.12", optional = true, default-features = false, features = ["std", "ndarray", "tracing", "api-24"] }
 ndarray = { version = "0.17", optional = true }
 regex = { version = "1.11.2", optional = true }
 once_cell = { version = "1.21.3", optional = true }
