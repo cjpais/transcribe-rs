@@ -6,7 +6,7 @@
 
 use std::fmt;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicI32, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, Ordering};
 
 use serde::{Deserialize, Serialize};
 
@@ -259,6 +259,27 @@ impl FromStr for WhisperAccelerator {
             other => Err(format!("unknown Whisper accelerator: {other}")),
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// ORT decoder GPU toggle
+// ---------------------------------------------------------------------------
+
+static DECODER_GPU: AtomicBool = AtomicBool::new(false);
+
+/// Control whether decoder sessions use GPU acceleration.
+///
+/// By default, decoder sessions are CPU-only (sequential execution makes GPU
+/// kernel launch overhead net-negative for per-token latency at batch size 1).
+/// Set this to `true` to use the global accelerator for decoder sessions
+/// (for GPU benchmarking or batch workloads).
+pub fn set_decoder_gpu(use_gpu: bool) {
+    DECODER_GPU.store(use_gpu, Ordering::Relaxed);
+}
+
+/// Returns whether decoder sessions should use the global accelerator.
+pub fn get_decoder_gpu() -> bool {
+    DECODER_GPU.load(Ordering::Relaxed)
 }
 
 // ---------------------------------------------------------------------------

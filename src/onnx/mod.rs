@@ -25,4 +25,5 @@ pub mod cohere;
 pub mod gigaam;
 pub mod moonshine;
 pub mod parakeet;
+pub mod qwen3;
 pub mod sense_voice;

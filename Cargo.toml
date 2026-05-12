@@ -115,6 +115,10 @@ name = "cohere"
 required-features = ["onnx"]
 
 [[example]]
+name = "qwen3"
+required-features = ["onnx"]
+
+[[example]]
 name = "whisperfile"
 required-features = ["whisperfile"]
 

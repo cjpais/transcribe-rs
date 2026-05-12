@@ -242,6 +242,64 @@ pub fn resolve_model_path(
     dir.join(format!("{}.onnx", name))
 }
 
+/// Session for autoregressive decoders: sequential execution, configurable
+/// intra-op threads.
+///
+/// By default forces CPU-only with arena allocator — sequential execution makes
+/// GPU kernel launch overhead net-negative for per-token latency at batch size 1.
+///
+/// Call [`crate::set_decoder_gpu(true)`] to use the global accelerator preference
+/// for decoder sessions (for GPU benchmarking).
+///
+/// Thread count resolution:
+/// 1. `num_threads` if > 0
+/// 2. Global `set_ort_intra_threads` if > 0
+/// 3. ORT default (all cores)
+pub fn create_decoder_session(path: &Path, num_threads: usize) -> Result<Session, ort::Error> {
+    let use_gpu = crate::accel::get_decoder_gpu();
+
+    let mut builder = Session::builder()?
+        .with_optimization_level(GraphOptimizationLevel::Level3)?
+        .with_parallel_execution(false)?;
+    if num_threads > 0 {
+        builder = builder.with_intra_threads(num_threads)?;
+    }
+
+    let session = if use_gpu {
+        log::info!("Decoder session using global accelerator (TRANSCRIBE_DECODER_GPU=1)");
+        builder
+            .with_execution_providers(execution_providers())?
+            .commit_from_file(path)?
+    } else {
+        if get_ort_accelerator() != OrtAccelerator::CpuOnly {
+            log::info!(
+                "Decoder session uses CPU-only (sequential execution); \
+                 set TRANSCRIBE_DECODER_GPU=1 to override"
+            );
+        }
+        builder
+            .with_execution_providers([CPU::default().with_arena_allocator(true).build()])?
+            .commit_from_file(path)?
+    };
+
+    for input in session.inputs() {
+        log::info!(
+            "Model input: name={}, type={:?}",
+            input.name(),
+            input.dtype()
+        );
+    }
+    for output in session.outputs() {
+        log::info!(
+            "Model output: name={}, type={:?}",
+            output.name(),
+            output.dtype()
+        );
+    }
+
+    Ok(session)
+}
+
 /// Read a custom metadata string from an ONNX session.
 pub fn read_metadata_str(session: &Session, key: &str) -> Result<Option<String>, ort::Error> {
     let meta = session.metadata()?;
