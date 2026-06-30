@@ -27,6 +27,12 @@ whisper-cuda   = ["whisper-cpp", "whisper-rs/cuda"]
 # Whisperfile server
 whisperfile = ["dep:ureq"]
 
+# Voxtral via llama.cpp libmtmd
+voxtral = ["dep:llama-cpp-4"]
+voxtral-metal = ["voxtral", "llama-cpp-4/metal"]
+voxtral-vulkan = ["voxtral", "llama-cpp-4/vulkan"]
+voxtral-cuda = ["voxtral", "llama-cpp-4/cuda"]
+
 # Remote engines
 openai = ["dep:async-openai", "dep:tokio", "dep:async-trait"]
 
@@ -81,6 +87,9 @@ async-trait = { version = "0.1.89", optional = true }
 # Whisper (GPU features controlled by whisper-metal / whisper-vulkan / whisper-cuda feature flags)
 whisper-rs = { version = "0.16.0", optional = true }
 
+# Voxtral / llama.cpp (GPU features controlled by voxtral-metal / voxtral-vulkan / voxtral-cuda)
+llama-cpp-4 = { version = "0.3.2", default-features = false, features = ["mtmd"], optional = true }
+
 # Examples with required features
 [[example]]
 name = "parakeet"
@@ -122,6 +131,10 @@ required-features = ["whisperfile"]
 name = "openai"
 required-features = ["openai"]
 
+[[example]]
+name = "voxtral"
+required-features = ["voxtral"]
+
 [dev-dependencies]
 once_cell = "1.21.3"
 
@@ -161,6 +174,10 @@ required-features = ["whisperfile"]
 [[test]]
 name = "openai"
 required-features = ["openai"]
+
+[[test]]
+name = "voxtral"
+required-features = ["voxtral"]
 
 [[test]]
 name = "transcriber"
