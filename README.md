@@ -44,6 +44,7 @@ GPU accelerator features for ORT engines:
 |---------|---------|
 | `ort-cuda` | NVIDIA CUDA |
 | `ort-rocm` | AMD ROCm |
+| `ort-migraphx` | AMD MIGraphX |
 | `ort-directml` | Microsoft DirectML (Windows) |
 | `ort-coreml` | Apple CoreML (macOS/iOS) |
 | `ort-webgpu` | WebGPU via Dawn |
@@ -82,6 +83,9 @@ use transcribe_rs::{set_ort_accelerator, OrtAccelerator};
 
 // Use CUDA for all ORT engines (SenseVoice, GigaAM, Parakeet, Moonshine)
 set_ort_accelerator(OrtAccelerator::Cuda);
+
+// Or use AMD MIGraphX
+set_ort_accelerator(OrtAccelerator::Migraphx);
 
 // Or auto-detect the best available GPU
 set_ort_accelerator(OrtAccelerator::Auto);

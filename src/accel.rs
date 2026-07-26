@@ -56,6 +56,9 @@ pub enum OrtAccelerator {
     /// kernels; uses its own threadpool independent of the session intra-op pool.
     #[serde(rename = "xnnpack")]
     Xnnpack = 8,
+    /// AMD MIGraphX (requires `ort-migraphx` feature).
+    #[serde(rename = "migraphx")]
+    Migraphx = 9,
 }
 
 static ORT_ACCELERATOR: AtomicU8 = AtomicU8::new(OrtAccelerator::Auto as u8);
@@ -102,6 +105,9 @@ impl OrtAccelerator {
         #[cfg(feature = "ort-xnnpack")]
         v.push(OrtAccelerator::Xnnpack);
 
+        #[cfg(feature = "ort-migraphx")]
+        v.push(OrtAccelerator::Migraphx);
+
         v
     }
 
@@ -116,6 +122,7 @@ impl OrtAccelerator {
             6 => Self::WebGpu,
             7 => Self::TensorRt,
             8 => Self::Xnnpack,
+            9 => Self::Migraphx,
             _ => Self::Auto,
         }
     }
@@ -139,6 +146,7 @@ impl fmt::Display for OrtAccelerator {
             Self::CoreMl => "coreml",
             Self::WebGpu => "webgpu",
             Self::Xnnpack => "xnnpack",
+            Self::Migraphx => "migraphx",
         };
         f.write_str(s)
     }
@@ -158,6 +166,7 @@ impl FromStr for OrtAccelerator {
             "coreml" | "core_ml" => Ok(Self::CoreMl),
             "webgpu" | "web_gpu" => Ok(Self::WebGpu),
             "xnnpack" => Ok(Self::Xnnpack),
+            "migraphx" => Ok(Self::Migraphx),
             other => Err(format!("unknown ORT accelerator: {other}")),
         }
     }
@@ -347,6 +356,7 @@ mod tests {
             OrtAccelerator::CoreMl,
             OrtAccelerator::WebGpu,
             OrtAccelerator::Xnnpack,
+            OrtAccelerator::Migraphx,
         ] {
             let s = pref.to_string();
             let parsed: OrtAccelerator = s.parse().unwrap();
@@ -391,6 +401,7 @@ mod tests {
             (OrtAccelerator::CoreMl, "\"coreml\""),
             (OrtAccelerator::WebGpu, "\"webgpu\""),
             (OrtAccelerator::Xnnpack, "\"xnnpack\""),
+            (OrtAccelerator::Migraphx, "\"migraphx\""),
         ] {
             let json = serde_json::to_string(&pref).unwrap();
             assert_eq!(json, expected, "serialize {:?}", pref);
