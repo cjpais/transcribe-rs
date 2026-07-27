@@ -2,6 +2,8 @@
 use ort::ep::CoreML;
 #[cfg(feature = "ort-directml")]
 use ort::ep::DirectML;
+#[cfg(feature = "ort-migraphx")]
+use ort::ep::MIGraphX;
 #[cfg(feature = "ort-rocm")]
 use ort::ep::ROCm;
 #[cfg(feature = "ort-tensorrt")]
@@ -100,6 +102,14 @@ fn execution_providers() -> Vec<ort::ep::ExecutionProviderDispatch> {
                 "Accelerator set to XNNPACK but ort-xnnpack feature is not enabled; falling back to CPU"
             );
         }
+        OrtAccelerator::Migraphx => {
+            #[cfg(feature = "ort-migraphx")]
+            eps.push(MIGraphX::default().build());
+            #[cfg(not(feature = "ort-migraphx"))]
+            log::warn!(
+                "Accelerator set to MIGraphX but ort-migraphx feature is not enabled; falling back to CPU"
+            );
+        }
         OrtAccelerator::Auto => {
             // Add compiled-in GPU EPs in priority order.
             // DirectML and WebGPU are excluded from Auto because they require
@@ -115,6 +125,8 @@ fn execution_providers() -> Vec<ort::ep::ExecutionProviderDispatch> {
             eps.push(CUDA::default().build());
             #[cfg(feature = "ort-rocm")]
             eps.push(ROCm::default().build());
+            #[cfg(feature = "ort-migraphx")]
+            eps.push(MIGraphX::default().build());
             // CoreML is safe for Auto on macOS — analogous to CUDA on NVIDIA
             // and ROCm on AMD. It does not require sequential execution or
             // disabled memory patterns.
