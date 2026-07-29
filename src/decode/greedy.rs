@@ -1,10 +1,10 @@
-/// Greedy autoregressive token selection with repetition detection.
-///
-/// Wraps the common argmax + EOS + repeat-guard pattern shared by all
-/// autoregressive decoder engines (Canary, Moonshine, Cohere).
-///
-/// Each engine still owns its KV cache and decoder session — this struct
-/// only handles token selection and stopping decisions.
+//! Greedy autoregressive token selection with repetition detection.
+//!
+//! Wraps the common argmax + EOS + repeat-guard pattern shared by all
+//! autoregressive decoder engines (Canary, Moonshine, Cohere).
+//!
+//! Each engine still owns its KV cache and decoder session — this struct
+//! only handles token selection and stopping decisions.
 
 const DEFAULT_MAX_CONSECUTIVE_REPEATS: usize = 8;
 

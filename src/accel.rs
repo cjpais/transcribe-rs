@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 /// (~800 MB+), significantly increasing the final binary and its runtime dependencies
 /// (CUDA toolkit / cuDNN). Prefer `CpuOnly` or lighter providers unless GPU acceleration
 /// is specifically required.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 #[repr(u8)]
@@ -32,6 +32,7 @@ pub enum OrtAccelerator {
     /// Automatically select the best available execution provider (default).
     /// DirectML and WebGPU are excluded from auto-selection because they
     /// require sequential execution mode; set them explicitly to use.
+    #[default]
     Auto = 0,
     /// Force CPU-only execution — no GPU providers.
     #[serde(rename = "cpu", alias = "cpu_only")]
@@ -128,12 +129,6 @@ impl OrtAccelerator {
     }
 }
 
-impl Default for OrtAccelerator {
-    fn default() -> Self {
-        Self::Auto
-    }
-}
-
 impl fmt::Display for OrtAccelerator {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let s = match self {
@@ -180,11 +175,12 @@ impl FromStr for OrtAccelerator {
 ///
 /// The actual GPU backend (Metal, Vulkan, etc.) is selected at compile time
 /// via whisper-rs feature flags. This enum only controls whether GPU is used.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[repr(u8)]
 pub enum WhisperAccelerator {
     /// Automatically select the best available backend (default — uses GPU if available).
+    #[default]
     Auto = 0,
     /// Force CPU-only execution.
     CpuOnly = 1,
@@ -237,12 +233,6 @@ impl WhisperAccelerator {
             2 => Self::Gpu,
             _ => Self::Auto,
         }
-    }
-}
-
-impl Default for WhisperAccelerator {
-    fn default() -> Self {
-        Self::Auto
     }
 }
 
