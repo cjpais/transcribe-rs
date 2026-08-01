@@ -116,6 +116,9 @@ pub mod remote;
 #[cfg(feature = "openai")]
 pub use remote::RemoteTranscriptionEngine;
 
+#[cfg(feature = "punct")]
+pub mod punct;
+
 use std::path::Path;
 
 /// Describes the capabilities of a speech model.

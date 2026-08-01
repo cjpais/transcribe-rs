@@ -182,14 +182,14 @@ fn build_session(
         .commit_from_file(path)?;
 
     for input in session.inputs() {
-        log::info!(
+        log::debug!(
             "Model input: name={}, type={:?}",
             input.name(),
             input.dtype()
         );
     }
     for output in session.outputs() {
-        log::info!(
+        log::debug!(
             "Model output: name={}, type={:?}",
             output.name(),
             output.dtype()
