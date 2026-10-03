@@ -343,14 +343,20 @@ impl ParakeetModel {
             let (probs, new_state) =
                 self.decode_step(&tokens, &prev_state, &encoder_step_dyn.view())?;
 
-            let vocab_logits_slice = probs
+            let logits_slice = probs
                 .as_slice()
                 .ok_or_else(|| TranscribeError::Inference("Logits not contiguous".to_string()))?;
 
-            let vocab_logits = if probs.len() > self.vocab_size {
-                &vocab_logits_slice[..self.vocab_size]
+            // TDT (Token-and-Duration Transducer) models emit duration logits
+            // after the vocab logits: the joint network predicts both the next
+            // token and how many encoder frames that prediction covers, so the
+            // decode loop can skip ahead instead of revisiting every frame.
+            // Plain RNN-T models emit no duration logits, leaving the slice
+            // empty.
+            let (vocab_logits, duration_logits) = if logits_slice.len() > self.vocab_size {
+                logits_slice.split_at(self.vocab_size)
             } else {
-                vocab_logits_slice
+                (logits_slice, &[][..])
             };
 
             let token = vocab_logits
@@ -367,7 +373,24 @@ impl ParakeetModel {
                 emitted_tokens += 1;
             }
 
-            if token == self.blank_idx || emitted_tokens == MAX_TOKENS_PER_STEP {
+            // The duration index is the number of frames to skip: NeMo's TDT
+            // ONNX exports use the identity duration set (0, 1, .., n-1). For
+            // RNN-T models `duration_logits` is empty and `skip` stays 0, so
+            // the frame index advances exactly as before: by one frame on
+            // blank or when the per-frame token cap is hit.
+            let skip = duration_logits
+                .iter()
+                .enumerate()
+                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                .map(|(idx, _)| idx)
+                .unwrap_or(0);
+
+            if skip > 0 {
+                t += skip;
+                emitted_tokens = 0;
+            } else if token == self.blank_idx || emitted_tokens == MAX_TOKENS_PER_STEP {
+                // A zero-duration blank makes no progress; forcing a one-frame
+                // advance guarantees termination (mirrors NeMo's TDT decoder).
                 t += 1;
                 emitted_tokens = 0;
             }
