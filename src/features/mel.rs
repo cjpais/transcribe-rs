@@ -79,7 +79,7 @@ fn compute_fbank(samples: &[f32], config: &MelConfig, sr: f32, f_max: f32) -> Ar
             1 + (samples.len() - frame_length) / frame_shift
         }
     } else {
-        (samples.len() + frame_shift - 1) / frame_shift
+        samples.len().div_ceil(frame_shift)
     };
 
     if num_frames == 0 {

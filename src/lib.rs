@@ -4,7 +4,7 @@
 //!
 //! ## Features
 //!
-//! - **ONNX Models**: SenseVoice, GigaAM, Parakeet, Moonshine (requires `onnx` feature)
+//! - **ONNX Models**: SenseVoice, GigaAM, Parakeet, Moonshine (requires `onnx` feature); Qwen3-ASR (requires `qwen3` feature)
 //! - **Whisper**: OpenAI Whisper via GGML (requires `whisper-cpp` feature)
 //! - **Whisperfile**: Mozilla Whisperfile server (requires `whisperfile` feature)
 //! - **Remote**: OpenAI API (requires `openai` feature)
@@ -90,9 +90,9 @@ pub mod accel;
 pub mod audio;
 pub mod error;
 pub use accel::{
-    get_ort_accelerator, get_whisper_accelerator, get_whisper_gpu_device, set_ort_accelerator,
-    set_whisper_accelerator, set_whisper_gpu_device, OrtAccelerator, WhisperAccelerator,
-    GPU_DEVICE_AUTO,
+    get_decoder_gpu, get_ort_accelerator, get_whisper_accelerator, get_whisper_gpu_device,
+    set_decoder_gpu, set_ort_accelerator, set_whisper_accelerator, set_whisper_gpu_device,
+    OrtAccelerator, WhisperAccelerator, GPU_DEVICE_AUTO,
 };
 pub use error::TranscribeError;
 
