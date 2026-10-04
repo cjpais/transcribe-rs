@@ -14,8 +14,18 @@ fn get_audio_duration(path: &PathBuf) -> Result<f64, Box<dyn std::error::Error>>
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
-    let model_path = PathBuf::from("models/parakeet-tdt-0.6b-v3-int8");
-    let wav_path = PathBuf::from("samples/dots.wav");
+    let mut args = std::env::args_os().skip(1);
+    let model_path = args
+        .next()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("models/parakeet-tdt-0.6b-v3-int8"));
+    let wav_path = args
+        .next()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("samples/dots.wav"));
+    if args.next().is_some() {
+        return Err("usage: parakeet [MODEL_DIR] [AUDIO.wav]".into());
+    }
 
     let audio_duration = get_audio_duration(&wav_path)?;
     println!("Audio duration: {:.2}s", audio_duration);
