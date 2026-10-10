@@ -24,5 +24,6 @@ pub mod canary;
 pub mod cohere;
 pub mod gigaam;
 pub mod moonshine;
+pub mod nemotron;
 pub mod parakeet;
 pub mod sense_voice;

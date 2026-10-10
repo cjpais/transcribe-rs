@@ -87,6 +87,10 @@ name = "parakeet"
 required-features = ["onnx"]
 
 [[example]]
+name = "nemotron"
+required-features = ["onnx"]
+
+[[example]]
 name = "whisper"
 required-features = ["whisper-cpp"]
 
@@ -128,6 +132,10 @@ once_cell = "1.21.3"
 # Tests with required features
 [[test]]
 name = "parakeet"
+required-features = ["onnx"]
+
+[[test]]
+name = "nemotron"
 required-features = ["onnx"]
 
 [[test]]
