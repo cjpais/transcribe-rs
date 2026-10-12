@@ -6,6 +6,7 @@
 //!
 //! - [`VadChunked`] — splits audio on speech/silence boundaries using a [`Vad`](crate::vad::Vad)
 //! - [`EnergyAdaptiveChunked`] — fixed-duration chunks with energy-based split point search
+//! - [`FixedChunked`] — fixed-duration chunks with configurable overlap, no analysis needed
 //!
 //! The model is borrowed per-call (`&mut dyn SpeechModel`), never owned.
 //! This works naturally with `Arc<Mutex<Box<dyn SpeechModel>>>` — lock for
@@ -35,12 +36,14 @@
 //! ```
 
 mod energy_adaptive_chunked;
+mod fixed_chunked;
 mod merge;
 #[cfg(test)]
 pub(crate) mod test_helpers;
 mod vad_chunked;
 
 pub use energy_adaptive_chunked::{EnergyAdaptiveChunked, EnergyAdaptiveConfig};
+pub use fixed_chunked::{FixedChunked, FixedChunkedConfig};
 pub use merge::{merge_sequential, merge_sequential_with_separator, DEFAULT_MERGE_SEPARATOR};
 pub use vad_chunked::{VadChunked, VadChunkedConfig};
 
