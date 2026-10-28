@@ -150,8 +150,8 @@ fn build_session(
     intra_threads: Option<usize>,
     parallel_execution: bool,
 ) -> Result<Session, ort::Error> {
-    let mut builder =
-        Session::builder()?.with_optimization_level(GraphOptimizationLevel::Level3)?;
+    let mut builder = Session::builder(crate::environment::environment()?)?
+        .with_optimization_level(GraphOptimizationLevel::Level3)?;
 
     if is_xnnpack_active() {
         // See ort::ep::XNNPACK docs: disable session intra-op spinning and
