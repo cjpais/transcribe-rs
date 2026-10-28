@@ -53,7 +53,9 @@ impl SileroVad {
     /// - `threshold`: speech probability threshold (recommended: 0.3)
     pub fn new(model_path: impl AsRef<Path>, threshold: f32) -> Result<Self, TranscribeError> {
         let path = model_path.as_ref();
-        let session = Session::builder()
+        let environment = crate::environment::environment()
+            .map_err(|e| TranscribeError::Config(format!("ort environment: {e}")))?;
+        let session = Session::builder(environment)
             .map_err(|e| TranscribeError::Config(format!("ort session builder: {e}")))?
             .with_optimization_level(GraphOptimizationLevel::Level3)
             .map_err(|e| TranscribeError::Config(format!("ort optimization level: {e}")))?

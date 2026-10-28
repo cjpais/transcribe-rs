@@ -88,6 +88,8 @@
 
 pub mod accel;
 pub mod audio;
+#[cfg(any(feature = "onnx", feature = "vad-silero"))]
+mod environment;
 pub mod error;
 pub use accel::{
     get_ort_accelerator, get_whisper_accelerator, get_whisper_gpu_device, set_ort_accelerator,
